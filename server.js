@@ -115,7 +115,9 @@ app.post('/api/normalize', async (req, res) => {
       client_address = '',
       vessel_name = '',
       arrival_date = '',
+      service_description = 'PRESTATIONS MARITIMES ET TRANSIT',
       amount_service = 0,
+      debours_description = 'DEBOURS DOUANE ET FRAIS PORTUAIRES AVANCES',
       amount_debours = 0,
       has_tva = true,
       force = false
@@ -162,7 +164,15 @@ app.post('/api/normalize', async (req, res) => {
       throw new Error(`Aucun jeton API configure pour l'entite ${entity}`);
     }
 
-    // 3. Construction du payload normalise e-MECeF (conforme v1_swagger.json)
+    // 3. Validation des articles
+    if (servNum <= 0 && debNum <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'La facture doit contenir au moins un montant supérieur à zéro (prestation HT ou débours).'
+      });
+    }
+
+    // 4. Construction du payload normalise e-MECeF (conforme v1_swagger.json)
     const items = [];
     if (servNum > 0) {
       items.push({
@@ -177,7 +187,7 @@ app.post('/api/normalize', async (req, res) => {
     if (debNum > 0) {
       items.push({
         code: 'DEB-01',
-        name: 'DEBOURS DOUANE ET FRAIS PORTUAIRES AVANCES',
+        name: debours_description.trim() || 'DEBOURS SANS TVA', 
         price: debNum,
         quantity: 1,
         taxGroup: 'A' // Exonere / Debours sans TVA
@@ -247,8 +257,10 @@ app.post('/api/normalize', async (req, res) => {
         client_name,
         vessel_name,
         arrival_date,
+        service_description: service_description.trim(),
         amount_service: servNum,
         amount_tva: tva,
+        debours_description: debours_description.trim(),
         amount_debours: debNum,
         amount_total: total,
         nim: sec.nim,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { ShieldCheck, Printer, AlertTriangle, FileText, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Printer, AlertTriangle, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [form, setForm] = useState({
@@ -11,21 +11,35 @@ export default function App() {
     client_address: '',
     vessel_name: '',
     arrival_date: '',
+    service_description: 'PRESTATIONS MARITIMES ET TRANSIT',
     amount_service: '',
+    debours_description: 'DEBOURS DOUANE ET FRAIS PORTUAIRES AVANCES',
     amount_debours: '',
   });
 
   const [loading, setLoading] = useState(false);
   const [normalizedData, setNormalizedData] = useState(null);
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+    if (errorMessage) setErrorMessage(null);
   };
 
   const handleNormalize = async (force = false) => {
-    setLoading(true);
+    setErrorMessage(null);
     setDuplicateWarning(null);
+
+    const servNum = Number(form.amount_service) || 0;
+    const debNum = Number(form.amount_debours) || 0;
+
+    if (servNum <= 0 && debNum <= 0) {
+      setErrorMessage('Veuillez renseigner un montant superieur a 0 pour la prestation HT ou pour les debours.');
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const res = await fetch('http://127.0.0.1:3001/api/normalize', {
@@ -33,8 +47,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
-          amount_service: Number(form.amount_service) || 0,
-          amount_debours: Number(form.amount_debours) || 0,
+          amount_service: servNum,
+          amount_debours: debNum,
           has_tva: true,
           force
         })
@@ -47,10 +61,10 @@ export default function App() {
       } else if (data.success) {
         setNormalizedData(data.data);
       } else {
-        alert(data.message || 'Erreur lors de la normalisation');
+        setErrorMessage(data.message || 'Erreur lors de la normalisation');
       }
     } catch (err) {
-      alert('Impossible de contacter le serveur Express local.');
+      setErrorMessage('Impossible de contacter le serveur Express local.');
     } finally {
       setLoading(false);
     }
@@ -58,16 +72,25 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans">
-      <div className="no-print w-[440px] bg-white border-r border-slate-200 flex flex-col h-full shadow-lg z-10">
-        <div className="bg-aglNavy text-white p-5">
+      <div className="no-print w-[460px] bg-white border-r border-slate-200 flex flex-col h-full shadow-lg z-10">
+        <div className="bg-slate-900 text-white p-5">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-emerald-400" />
             <h1 className="font-bold text-base tracking-wide">PORTAIL e-MECeF</h1>
           </div>
-          <p className="text-xs text-slate-300 mt-1">Normalisation AGL Bénin et SOCOPAO</p>
+          <p className="text-xs text-slate-400 mt-1">Normalisation AGL Benin et SOCOPAO</p>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-4 text-xs">
+          
+          {/* Bandeau d'erreur explicite */}
+          {errorMessage && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-rose-600" />
+              <div className="leading-tight font-medium">{errorMessage}</div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="font-bold text-slate-700 block mb-1">ENTITE</label>
@@ -75,21 +98,21 @@ export default function App() {
                 name="entity"
                 value={form.entity}
                 onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-aglNavy outline-none font-semibold text-aglNavy"
+                className="w-full border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none font-semibold text-slate-900"
               >
                 <option value="AGL">AGL BENIN</option>
                 <option value="SOCOPAO">SOCOPAO</option>
               </select>
             </div>
             <div>
-              <label className="font-bold text-slate-700 block mb-1">NUMERO DOSSIER / FACTURE</label>
+              <label className="font-bold text-slate-700 block mb-1">NUMERO FACTURE</label>
               <input
                 type="text"
                 name="reference"
-                placeholder="AGL-2026-001"
+                placeholder="Ex: 8461"
                 value={form.reference}
                 onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-slate-900"
               />
             </div>
           </div>
@@ -103,7 +126,7 @@ export default function App() {
               placeholder="0202430066359"
               value={form.client_ifu}
               onChange={handleChange}
-              className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
+              className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-slate-900"
             />
           </div>
 
@@ -115,7 +138,7 @@ export default function App() {
               placeholder="Nom complet du client"
               value={form.client_name}
               onChange={handleChange}
-              className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
+              className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-slate-900"
             />
           </div>
 
@@ -128,7 +151,7 @@ export default function App() {
                 placeholder="MSC LAURA"
                 value={form.vessel_name}
                 onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-slate-900"
               />
             </div>
             <div>
@@ -138,39 +161,65 @@ export default function App() {
                 name="arrival_date"
                 value={form.arrival_date}
                 onChange={handleChange}
-                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-slate-900"
               />
             </div>
           </div>
 
-          <div className="border-t border-slate-200 my-1 pt-3">
-            <label className="font-bold text-slate-700 block mb-1">PRESTATION HT (TVA 18% - GROUPE B)</label>
-            <input
-              type="number"
-              name="amount_service"
-              placeholder="0"
-              value={form.amount_service}
-              onChange={handleChange}
-              className="w-full border border-slate-300 rounded px-3 py-2 outline-none font-bold text-slate-800"
-            />
+          {/* Ligne 1 : Prestation Taxable */}
+          <div className="border-t border-slate-200 my-1 pt-3 space-y-2">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">LIBELLE ARTICLE TAXABLE (GRP B)</label>
+              <input
+                type="text"
+                name="service_description"
+                value={form.service_description}
+                onChange={handleChange}
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none text-slate-800 text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">MONTANT HT (TVA 18% APPLIQUEE)</label>
+              <input
+                type="number"
+                name="amount_service"
+                placeholder="0"
+                value={form.amount_service}
+                onChange={handleChange}
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none font-bold text-slate-900"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="font-bold text-slate-700 block mb-1">DEBOURS (SANS TVA - GROUPE A)</label>
-            <input
-              type="number"
-              name="amount_debours"
-              placeholder="0"
-              value={form.amount_debours}
-              onChange={handleChange}
-              className="w-full border border-slate-300 rounded px-3 py-2 outline-none text-slate-700"
-            />
+          {/* Ligne 2 : Débours */}
+          <div className="border-t border-slate-200 my-1 pt-3 space-y-2">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">LIBELLE DEBOURS SANS TVA (GRP A)</label>
+              <input
+                type="text"
+                name="debours_description"
+                value={form.debours_description}
+                onChange={handleChange}
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none text-slate-800 text-[11px]"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">MONTANT DEBOURS (0% TVA)</label>
+              <input
+                type="number"
+                name="amount_debours"
+                placeholder="0"
+                value={form.amount_debours}
+                onChange={handleChange}
+                className="w-full border border-slate-300 rounded px-3 py-2 outline-none text-slate-800 font-semibold"
+              />
+            </div>
           </div>
 
           <button
             onClick={() => handleNormalize(false)}
             disabled={loading || !form.reference || !form.client_name}
-            className="mt-2 w-full bg-aglNavy hover:bg-aglNavyLight disabled:bg-slate-300 text-white font-bold py-3 rounded shadow transition flex items-center justify-center gap-2"
+            className="mt-2 w-full bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-bold py-3 rounded shadow transition flex items-center justify-center gap-2"
           >
             {loading ? 'NORMALISATION EN COURS...' : 'VALIDER ET NORMALISER'}
           </button>
@@ -186,7 +235,7 @@ export default function App() {
               </span>
               <button
                 onClick={() => window.print()}
-                className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded flex items-center gap-1.5 shadow"
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded flex items-center gap-1.5 shadow"
               >
                 <Printer className="w-4 h-4" /> Imprimer / Telecharger PDF
               </button>
@@ -218,14 +267,16 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="py-1">PRESTATIONS MARITIMES ET TRANSIT</td>
-                    <td className="text-right py-1">{Number(normalizedData.amount_service).toLocaleString('fr-FR')}</td>
-                    <td className="text-right py-1">[B]</td>
-                  </tr>
+                  {Number(normalizedData.amount_service) > 0 && (
+                    <tr>
+                      <td className="py-1">{normalizedData.service_description || 'PRESTATIONS MARITIMES ET TRANSIT'}</td>
+                      <td className="text-right py-1">{Number(normalizedData.amount_service).toLocaleString('fr-FR')}</td>
+                      <td className="text-right py-1">[B]</td>
+                    </tr>
+                  )}
                   {Number(normalizedData.amount_debours) > 0 && (
                     <tr>
-                      <td className="py-1">DEBOURS (SANS TVA)</td>
+                      <td className="py-1">{normalizedData.debours_description || 'DEBOURS DOUANE ET FRAIS PORTUAIRES'}</td>
                       <td className="text-right py-1">{Number(normalizedData.amount_debours).toLocaleString('fr-FR')}</td>
                       <td className="text-right py-1">[A]</td>
                     </tr>
@@ -301,7 +352,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => handleNormalize(true)}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded shadow"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded shadow"
               >
                 Confirmer et Forcer l'envoi
               </button>
