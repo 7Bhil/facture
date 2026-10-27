@@ -3,3 +3,9 @@ references/
 Guide-RGPD-du-developpeur/
 .DS_Store
 *.log
+node_modules/
+dist/
+*.log
+factures.db-journal
+client/node_modules/
+client/dist/
