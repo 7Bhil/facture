@@ -200,7 +200,7 @@ app.post('/api/normalize', async (req, res) => {
       },
       payment: [
         {
-          name: 'OTHER',
+          name: 'AUTRE',
           amount: total
         }
       ],
