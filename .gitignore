@@ -17,3 +17,7 @@ GEMINI.md
 CLAUDE.md
 .cursorrules
 BRAIN.md
+.env
+factures.db
+factures.db-shm
+factures.db-wal
