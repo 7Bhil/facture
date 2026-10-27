@@ -1,1134 +1,1073 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ShieldCheck,
-  Printer,
-  AlertTriangle,
-  FileText,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Plus,
   Trash2,
+  Download,
+  Pin,
+  FileSpreadsheet,
   History,
-  FilePlus2,
+  Zap,
   RefreshCw,
-  Search,
-  Upload,
-  RotateCcw
+  Eye,
+  X
 } from 'lucide-react';
 import InvoiceSheetA4 from './InvoiceSheetA4';
 
 const API_BASE = 'http://127.0.0.1:3001';
 
-const TAX_GROUPS = [
-  { value: 'B', label: 'Groupe B - Taxable TVA (18%)', rate: 18 },
-  { value: 'A', label: 'Groupe A - Exonere / Debours (0%)', rate: 0 },
-  { value: 'C', label: 'Groupe C - Exportation (0%)', rate: 0 },
-  { value: 'D', label: 'Groupe D - TVA Exception (18%)', rate: 18 },
-  { value: 'E', label: 'Groupe E - Regime TPS (0%)', rate: 0 },
-  { value: 'F', label: 'Groupe F - Reserve (0%)', rate: 0 }
+const RUBRIQUES_RAPIDES = [
+  'MANUTENTION PORTUAIRE ET ACCONAGE',
+  'MAGASINAGE ET STOCKAGE TERMINAL',
+  'SURESTARIES ET DETENTION CONTENEUR',
+  'FRAIS DE DOSSIER ET BON A DELIVRER (BAD)',
+  'HONORAIRES D AGREEE EN DOUANE (HAD)',
+  'TRANSPORT ET LIVRAISON CONTENEUR',
+  'DEBOURS DROITS ET TAXES DE DOUANE',
+  'DEBOURS REDEVANCES PORT AUTONOME DE COTONOU (PAC)',
+  'DEBOURS FRAIS D ESCALE ET REMORQUAGE',
+  'DEBOURS FRAIS DE SCANNER ET VISITE DOUANIERE'
 ];
 
-const PAYMENT_TYPES = [
-  { value: 'VIREMENT', label: 'VIREMENT BANCAIRE' },
-  { value: 'CHEQUES', label: 'CHEQUE' },
-  { value: 'ESPECES', label: 'ESPECES' },
-  { value: 'CREDIT', label: 'A CREDIT' },
-  { value: 'MOBILEMONEY', label: 'MOBILE MONEY' },
-  { value: 'CARTEBANCAIRE', label: 'CARTE BANCAIRE' },
-  { value: 'AUTRE', label: 'AUTRE' }
-];
-
-const INVOICE_TYPES = [
-  { value: 'FV', label: 'FV - Facture de Vente' },
-  { value: 'FA', label: "FA - Facture d'Avoir" },
-  { value: 'EV', label: "EV - Facture de Vente a l'Exportation" },
-  { value: 'EA', label: "EA - Facture d'Avoir a l'Exportation" }
-];
-
-function createEmptyItem(name = '', taxGroup = 'B', priceTtc = '', code = '') {
+function createRow(name = '', taxGroup = 'B', price = '') {
   return {
     id: Math.random().toString(36).substring(2, 9),
-    code,
     name,
-    tax_group: taxGroup,
-    input_mode: 'TTC', // 'TTC' ou 'HT'
-    raw_price: priceTtc,
-    quantity: 1,
-    tax_specific: 0
+    tax_group: taxGroup, // 'B' (18%) ou 'A' (0% Débours)
+    unit_price_ttc: price,
+    quantity: 1
   };
 }
 
-function computeUnitPriceTtc(item) {
-  const raw = Number(item.raw_price) || 0;
-  if (raw <= 0) return 0;
-  const isTaxable18 = item.tax_group === 'B' || item.tax_group === 'D';
-  if (item.input_mode === 'HT' && isTaxable18) {
-    return Math.round(raw * 1.18);
-  }
-  return Math.round(raw);
+function triggerPdfDownload(invoiceId) {
+  const link = document.createElement('a');
+  link.href = `${API_BASE}/api/invoices/${invoiceId}/pdf`;
+  link.setAttribute('download', '');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('form'); // 'form' | 'journal'
+  // Navigation : 'speed' (Poste de saisie rapide) | 'batch' (Import lot en masse) | 'journal' (Historique)
+  const [mode, setMode] = useState('speed');
+
+  // Parametres epingles pour enchainer les factures d'un meme navire sans ressaisie
   const [entity, setEntity] = useState('AGL');
-  const [emcfStatus, setEmcfStatus] = useState(null);
-  const [statusLoading, setStatusLoading] = useState(false);
-
-  // Donnees catalogue et historique
-  const [catalog, setCatalog] = useState([]);
-  const [invoices, setInvoices] = useState([]);
-  const [journalSearch, setJournalSearch] = useState('');
-  const [journalTypeFilter, setJournalTypeFilter] = useState('');
-
-  // Etat du formulaire de facturation
-  const [dossierRef, setDossierRef] = useState('');
   const [invoiceType, setInvoiceType] = useState('FV');
+  const [pinVessel, setPinVessel] = useState(true);
+  const [vesselName, setVesselName] = useState('');
+  const [arrivalDate, setArrivalDate] = useState('');
+  const [paymentType, setPaymentType] = useState('VIREMENT');
+  const [autoDownloadPdf, setAutoDownloadPdf] = useState(true);
+  const [autoClearAfterSuccess, setAutoClearAfterSuccess] = useState(true);
+
+  // Champs propres a chaque facture
+  const [dossierRef, setDossierRef] = useState('');
   const [originalMecefCode, setOriginalMecefCode] = useState('');
   const [clientIfu, setClientIfu] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientAddress, setClientAddress] = useState('');
-  const [clientContact, setClientContact] = useState('');
-  const [vesselName, setVesselName] = useState('');
-  const [arrivalDate, setArrivalDate] = useState('');
-  const [blNumber, setBlNumber] = useState('');
-  const [paymentType, setPaymentType] = useState('VIREMENT');
-  const [aibType, setAibType] = useState('');
-  const [customMessage, setCustomMessage] = useState('');
 
-  // Grille dynamique d'articles
-  const [items, setItems] = useState([
-    createEmptyItem('MANUTENTION PORTUAIRE ET ACCONAGE', 'B', '', 'SRV-MAN'),
-    createEmptyItem('DEBOURS DROITS ET TAXES DE DOUANE', 'A', '', 'DEB-DOU')
+  // Lignes de la facture (ultra-compactes : Nom | Montant | [18% | Débours 0%])
+  const [rows, setRows] = useState([
+    createRow('MANUTENTION PORTUAIRE ET ACCONAGE', 'B', ''),
+    createRow('DEBOURS DROITS ET TAXES DE DOUANE', 'A', '')
   ]);
 
-  // Zone d'import rapide Copier/Coller depuis Excel RECAP
-  const [showPasteBox, setShowPasteBox] = useState(false);
-  const [pasteText, setPasteText] = useState('');
+  // Etats de retour immediat (Impossible a rater)
+  const [submitting, setSubmitting] = useState(false);
+  const [statusFeedback, setStatusFeedback] = useState(null); // { type: 'success' | 'error', title, detail, invoice }
+  const [duplicateModal, setDuplicateModal] = useState(null);
+  const [previewInvoice, setPreviewInvoice] = useState(null);
 
-  // Etats d'execution
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-  const [infoBanner, setInfoBanner] = useState(null);
-  const [duplicateWarning, setDuplicateWarning] = useState(null);
-  const [normalizedData, setNormalizedData] = useState(null);
+  // Historique & Statut DGI
+  const [recentInvoices, setRecentInvoices] = useState([]);
+  const [emcfStatus, setEmcfStatus] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Chargement initial du catalogue, de l'historique et du statut e-MCF
+  // Mode Batch (Traitement de lot par copier-coller Excel)
+  const [batchText, setBatchText] = useState('');
+  const [batchQueue, setBatchQueue] = useState([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  const dossierInputRef = useRef(null);
+
   useEffect(() => {
-    fetchCatalog();
     fetchInvoices();
-  }, []);
-
-  useEffect(() => {
-    fetchEmcfStatus(entity);
+    fetchStatus(entity);
   }, [entity]);
 
-  const fetchEmcfStatus = async (ent) => {
-    setStatusLoading(true);
+  const fetchStatus = async (ent) => {
     try {
       const res = await fetch(`${API_BASE}/api/emcf-status/${ent}`);
       const data = await res.json();
-      if (data.success) {
-        setEmcfStatus(data);
-      }
+      if (data.success) setEmcfStatus(data);
     } catch {
-      setEmcfStatus(null);
-    } finally {
-      setStatusLoading(false);
+      // ignore
     }
   };
 
-  const fetchCatalog = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/catalog`);
-      const data = await res.json();
-      if (data.success) setCatalog(data.items || []);
-    } catch {
-      // Silencieux si serveur indisponible
-    }
-  };
-
-  const fetchInvoices = async (search = journalSearch, type = journalTypeFilter) => {
+  const fetchInvoices = async (q = searchQuery) => {
     try {
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      if (type) params.set('type', type);
+      if (q) params.set('search', q);
       const res = await fetch(`${API_BASE}/api/invoices?${params.toString()}`);
       const data = await res.json();
-      if (data.success) setInvoices(data.invoices || []);
+      if (data.success) setRecentInvoices(data.invoices || []);
     } catch {
-      // Silencieux
+      // ignore
     }
   };
 
-  // Auto-completion du client des la saisie des 13 chiffres de l'IFU
+  // Auto-completion client dès 13 chiffres IFU
   const handleIfuChange = async (val) => {
-    const cleaned = val.replace(/\D/g, '').slice(0, 13);
-    setClientIfu(cleaned);
-    if (cleaned.length === 13) {
+    const clean = val.replace(/\D/g, '').slice(0, 13);
+    setClientIfu(clean);
+    if (clean.length === 13) {
       try {
-        const res = await fetch(`${API_BASE}/api/clients/lookup?ifu=${cleaned}`);
+        const res = await fetch(`${API_BASE}/api/clients/lookup?ifu=${clean}`);
         const data = await res.json();
         if (data.success && data.client) {
           setClientName(data.client.name || '');
           setClientAddress(data.client.address || '');
-          setClientContact(data.client.contact || '');
-          setInfoBanner(`Client reconnu dans l'annuaire : ${data.client.name}`);
         }
       } catch {
-        // Ignorer
+        // ignore
       }
     }
   };
 
-  // Purge des demandes en attente sur l'e-MCF
-  const handleClearPending = async () => {
-    if (!emcfStatus || !emcfStatus.pendingRequestsList?.length) return;
-    setStatusLoading(true);
-    try {
-      const uids = emcfStatus.pendingRequestsList.map((p) => p.uid);
-      await fetch(`${API_BASE}/api/emcf-pending/${entity}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uids })
-      });
-      await fetchEmcfStatus(entity);
-      setInfoBanner(`${uids.length} demande(s) en attente annulee(s) sur l'e-MCF.`);
-    } catch {
-      setErrorMessage("Impossible d'annuler les factures en attente.");
-    } finally {
-      setStatusLoading(false);
-    }
-  };
-
-  // Gestion des lignes d'articles
-  const updateItem = (id, field, value) => {
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, [field]: value } : it))
-    );
-    if (errorMessage) setErrorMessage(null);
-  };
-
-  const addItem = (name = '', taxGroup = 'B', price = '', code = '') => {
-    setItems((prev) => [...prev, createEmptyItem(name, taxGroup, price, code)]);
-  };
-
-  const removeItem = (id) => {
-    if (items.length <= 1) return;
-    setItems((prev) => prev.filter((it) => it.id !== id));
-  };
-
-  const handleSelectCatalog = (e) => {
-    const code = e.target.value;
-    if (!code) return;
-    const found = catalog.find((c) => c.code === code);
-    if (found) {
-      addItem(found.name, found.tax_group, found.default_price_ttc || '', found.code);
-    }
-    e.target.value = '';
-  };
-
-  // Import Copier/Coller depuis Excel RECAP
-  const handleParsePaste = () => {
-    if (!pasteText.trim()) return;
-    const rows = pasteText.trim().split(/\r?\n/);
-    const parsedItems = [];
-
-    for (const row of rows) {
-      const cols = row.split(/\t|;/).map((c) => c.trim());
-      if (cols.length >= 2) {
-        const label = cols[0];
-        const rawAmount = Number(cols[1].replace(/\s/g, '').replace(',', '.')) || 0;
-        const groupHint = (cols[2] || '').toUpperCase();
-        const isDebours =
-          groupHint === 'A' ||
-          label.toUpperCase().includes('DEBOURS') ||
-          label.toUpperCase().includes('DOUANE') ||
-          label.toUpperCase().includes('PAC');
-
-        if (label && rawAmount > 0) {
-          parsedItems.push(createEmptyItem(label, isDebours ? 'A' : 'B', rawAmount));
+  const updateRow = (id, field, value) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const updated = { ...r, [field]: value };
+        // Detection automatique du groupe Débours si le libelle contient "DEBOURS"
+        if (field === 'name' && value.toUpperCase().includes('DEBOURS')) {
+          updated.tax_group = 'A';
         }
+        return updated;
+      })
+    );
+  };
+
+  const addRow = (defaultGroup = 'B') => {
+    setRows((prev) => [...prev, createRow('', defaultGroup, '')]);
+  };
+
+  const removeRow = (id) => {
+    if (rows.length <= 1) return;
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  // Calcul temps reel
+  const totals = useMemo(() => {
+    let taxableTtc = 0;
+    let debours = 0;
+    for (const r of rows) {
+      const amt = Math.round(Number(r.unit_price_ttc) || 0);
+      if (amt > 0) {
+        if (r.tax_group === 'B') taxableTtc += amt;
+        else debours += amt;
       }
     }
-
-    if (parsedItems.length > 0) {
-      setItems(parsedItems);
-      setShowPasteBox(false);
-      setPasteText('');
-      setInfoBanner(`${parsedItems.length} ligne(s) importee(s) depuis le presse-papiers Excel.`);
-    } else {
-      setErrorMessage('Format non reconnu. Collez des lignes au format : Libelle [TAB] Montant [TAB] Groupe (A ou B).');
-    }
-  };
-
-  // Pre-remplissage d'un Avoir (FA/EA) a partir d'une facture existante
-  const loadInvoiceForCreditNote = (origInv) => {
-    setEntity(origInv.entity);
-    setInvoiceType(origInv.invoice_type === 'EV' ? 'EA' : 'FA');
-    setDossierRef(`${origInv.dossier_ref}-AVOIR`);
-    setOriginalMecefCode((origInv.code_mecef || '').replace(/[^A-Za-z0-9]/g, ''));
-    setClientIfu(origInv.client_ifu || '');
-    setClientName(origInv.client_name || '');
-    setClientAddress(origInv.client_address || '');
-    setClientContact(origInv.client_contact || '');
-    setVesselName(origInv.vessel_name || '');
-    setArrivalDate(origInv.arrival_date || '');
-    setBlNumber(origInv.bl_number || '');
-    setPaymentType(origInv.payment_type || 'VIREMENT');
-    setAibType(origInv.aib_type || '');
-
-    if (Array.isArray(origInv.items) && origInv.items.length > 0) {
-      setItems(
-        origInv.items.map((it) => ({
-          id: Math.random().toString(36).substring(2, 9),
-          code: it.code || '',
-          name: it.name,
-          tax_group: it.tax_group || 'B',
-          input_mode: 'TTC',
-          raw_price: it.unit_price_ttc,
-          quantity: it.quantity,
-          tax_specific: it.tax_specific || 0
-        }))
-      );
-    }
-    setActiveTab('form');
-    setInfoBanner(`Formulaire pre-rempli pour l'emission d'un Avoir sur la facture ${origInv.dossier_ref} (${origInv.code_mecef}).`);
-  };
-
-  const resetForm = () => {
-    setDossierRef('');
-    setInvoiceType('FV');
-    setOriginalMecefCode('');
-    setClientIfu('');
-    setClientName('');
-    setClientAddress('');
-    setClientContact('');
-    setVesselName('');
-    setArrivalDate('');
-    setBlNumber('');
-    setCustomMessage('');
-    setErrorMessage(null);
-    setInfoBanner(null);
-    setItems([
-      createEmptyItem('MANUTENTION PORTUAIRE ET ACCONAGE', 'B', '', 'SRV-MAN'),
-      createEmptyItem('DEBOURS DROITS ET TAXES DE DOUANE', 'A', '', 'DEB-DOU')
-    ]);
-  };
-
-  // Calcul arithmetique en temps reel avant soumission
-  const liveTotals = useMemo(() => {
-    let totalGroupA = 0;
-    let totalGroupBTtc = 0;
-    let totalOtherExon = 0;
-    let totalSpecific = 0;
-
-    for (const it of items) {
-      const unitTtc = computeUnitPriceTtc(it);
-      const qty = Number(it.quantity) || 0;
-      const spec = Number(it.tax_specific) || 0;
-      const lineTtc = Math.round(unitTtc * qty) + spec;
-      totalSpecific += spec;
-
-      if (it.tax_group === 'B' || it.tax_group === 'D') {
-        totalGroupBTtc += lineTtc;
-      } else if (it.tax_group === 'A') {
-        totalGroupA += lineTtc;
-      } else {
-        totalOtherExon += lineTtc;
-      }
-    }
-
-    const baseHtB = Math.round(totalGroupBTtc / 1.18);
-    const tvaB = totalGroupBTtc - baseHtB;
-    const totalTtc = totalGroupA + totalGroupBTtc + totalOtherExon;
-
+    const ht = Math.round(taxableTtc / 1.18);
+    const tva = taxableTtc - ht;
     return {
-      totalGroupA,
-      totalGroupBTtc,
-      baseHtB,
-      tvaB,
-      totalOtherExon,
-      totalSpecific,
-      totalTtc
+      ht,
+      tva,
+      taxableTtc,
+      debours,
+      totalTtc: taxableTtc + debours
     };
-  }, [items]);
+  }, [rows]);
 
-  // Soumission & Normalisation vers le serveur Express -> DGI
-  const handleNormalize = async (force = false) => {
-    setErrorMessage(null);
-    setInfoBanner(null);
-    setDuplicateWarning(null);
+  // Validation & Envoi ultra-rapide
+  const handleSubmit = async (force = false) => {
+    setDuplicateModal(null);
 
     if (!dossierRef.trim()) {
-      setErrorMessage('Veuillez renseigner le numero de dossier / facture.');
+      setStatusFeedback({
+        type: 'error',
+        title: 'N° DOSSIER MANQUANT',
+        detail: 'Saisissez le numero de facture / dossier en haut a gauche.'
+      });
+      dossierInputRef.current?.focus();
       return;
     }
+
     if (!clientName.trim()) {
-      setErrorMessage('Veuillez renseigner le nom / raison sociale du client.');
+      setStatusFeedback({
+        type: 'error',
+        title: 'NOM DU CLIENT MANQUANT',
+        detail: 'Renseignez le nom du client (ou son IFU a 13 chiffres).'
+      });
       return;
     }
 
-    // Filtrer uniquement les lignes qui ont un prix > 0 ou alerter si une ligne remplie a un prix nul
-    const activeItems = items
-      .map((it) => ({
-        ...it,
-        unit_price_ttc: computeUnitPriceTtc(it)
+    const validItems = rows
+      .map((r) => ({
+        name: r.name.trim(),
+        tax_group: r.tax_group,
+        unit_price_ttc: Math.round(Number(r.unit_price_ttc) || 0),
+        quantity: 1
       }))
-      .filter((it) => it.unit_price_ttc > 0 && it.name.trim() !== '');
+      .filter((r) => r.name !== '' && r.unit_price_ttc > 0);
 
-    if (activeItems.length === 0) {
-      setErrorMessage('Veuillez saisir au moins une ligne d article avec un libelle et un montant superieur a 0.');
+    if (validItems.length === 0) {
+      setStatusFeedback({
+        type: 'error',
+        title: 'AUCUN MONTANT SAISI',
+        detail: 'Saisissez au moins une ligne avec un nom de rubrique et un montant superieur a 0.'
+      });
       return;
     }
 
-    if (invoiceType === 'FA' || invoiceType === 'EA') {
-      const cleanOrig = originalMecefCode.replace(/[^A-Za-z0-9]/g, '');
-      if (cleanOrig.length !== 24) {
-        setErrorMessage(`Pour une facture d avoir (${invoiceType}), le Code MECeF de la facture originale doit comporter exactement 24 caracteres alphanumeriques.`);
-        return;
-      }
-    }
+    setSubmitting(true);
+    setStatusFeedback(null);
 
-    setLoading(true);
     try {
-      const payload = {
-        entity,
-        dossier_ref: dossierRef.trim(),
-        invoice_type: invoiceType,
-        original_mecef_code: originalMecefCode,
-        client: {
-          ifu: clientIfu.trim(),
-          name: clientName.trim(),
-          address: clientAddress.trim(),
-          contact: clientContact.trim()
-        },
-        vessel_name: vesselName.trim(),
-        arrival_date: arrivalDate,
-        bl_number: blNumber.trim(),
-        custom_message: customMessage.trim(),
-        aib_type: aibType || null,
-        payment_type: paymentType,
-        items: activeItems,
-        force
-      };
-
       const res = await fetch(`${API_BASE}/api/normalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          entity,
+          dossier_ref: dossierRef.trim(),
+          invoice_type: invoiceType,
+          original_mecef_code: originalMecefCode.trim(),
+          client: {
+            ifu: clientIfu.trim(),
+            name: clientName.trim(),
+            address: clientAddress.trim() || 'Cotonou, Benin'
+          },
+          vessel_name: vesselName.trim(),
+          arrival_date: arrivalDate,
+          payment_type: paymentType,
+          items: validItems,
+          force
+        })
       });
 
       const data = await res.json();
 
       if (data.requires_confirmation) {
-        setDuplicateWarning(data.message);
-      } else if (data.success) {
-        setNormalizedData(data.data);
-        setInfoBanner(data.message);
-        fetchInvoices();
-        fetchEmcfStatus(entity);
-      } else {
-        setErrorMessage(data.message || 'Erreur lors de la normalisation DGI.');
+        setDuplicateModal(data.message);
+        return;
+      }
+
+      if (!data.success) {
+        setStatusFeedback({
+          type: 'error',
+          title: 'REJET DGI / ERREUR DE VALIDATION',
+          detail: data.message
+        });
+        return;
+      }
+
+      const certified = data.data;
+
+      // 1. Feedback visuel geant immanquable
+      setStatusFeedback({
+        type: 'success',
+        title: data.already_normalized
+          ? `DEJA NORMALISEE — CODE MECeF : ${certified.code_mecef}`
+          : `FACTURE ACCEPTEE PAR LA DGI — CODE MECeF : ${certified.code_mecef}`,
+        detail: `Dossier ${certified.dossier_ref} | Client : ${certified.client_name} | Total : ${Number(certified.total_ttc).toLocaleString('fr-FR')} FCFA`,
+        invoice: certified
+      });
+
+      // 2. Telechargement automatique du PDF officiel sans boite d'impression
+      if (autoDownloadPdf && certified.id) {
+        triggerPdfDownload(certified.id);
+      }
+
+      // 3. Rafraichissement de la liste a droite
+      fetchInvoices();
+
+      // 4. Preparation immediate pour la facture suivante (Mode Rafale)
+      if (autoClearAfterSuccess && !data.already_normalized) {
+        setDossierRef('');
+        setClientIfu('');
+        setClientName('');
+        setClientAddress('');
+        if (!pinVessel) {
+          setVesselName('');
+          setArrivalDate('');
+        }
+        setRows([
+          createRow('MANUTENTION PORTUAIRE ET ACCONAGE', 'B', ''),
+          createRow('DEBOURS DROITS ET TAXES DE DOUANE', 'A', '')
+        ]);
+        setTimeout(() => {
+          dossierInputRef.current?.focus();
+        }, 100);
       }
     } catch {
-      setErrorMessage('Impossible de communiquer avec le serveur local (port 3001).');
+      setStatusFeedback({
+        type: 'error',
+        title: 'SERVEUR LOCAL INJOIGNABLE',
+        detail: 'Verifiez que le serveur Express tourne sur le port 3001.'
+      });
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
+  // Raccourci clavier global Ctrl + Entree pour valider instantanement
+  const handleKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit(false);
+    }
+  };
+
+  // Analyse d'un lot de factures collees depuis Excel
+  // Format ligne : Dossier [TAB] NomClient [TAB] IFU [TAB] Navire [TAB] Date [TAB] MontantTaxable18 [TAB] MontantDebours0
+  const handleParseBatch = () => {
+    if (!batchText.trim()) return;
+    const lines = batchText.trim().split(/\r?\n/);
+    const parsed = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const cols = lines[i].split(/\t|;/).map((c) => c.trim());
+      if (cols.length < 2) continue;
+      // Ignore header row if present
+      if (cols[0].toLowerCase().includes('dossier') || cols[0].toLowerCase().includes('facture')) continue;
+
+      const ref = cols[0];
+      const cName = cols[1] || 'CLIENT COMPTANT';
+      const cIfu = (cols[2] || '').replace(/\D/g, '');
+      const nav = cols[3] || vesselName;
+      const arrDate = cols[4] || arrivalDate;
+      const mTaxable = Math.round(Number((cols[5] || '0').replace(/\s/g, '').replace(',', '.')) || 0);
+      const mDebours = Math.round(Number((cols[6] || '0').replace(/\s/g, '').replace(',', '.')) || 0);
+
+      if (ref && (mTaxable > 0 || mDebours > 0)) {
+        const batchItems = [];
+        if (mTaxable > 0) {
+          batchItems.push({
+            name: 'PRESTATIONS MARITIMES ET TRANSIT',
+            tax_group: 'B',
+            unit_price_ttc: mTaxable,
+            quantity: 1
+          });
+        }
+        if (mDebours > 0) {
+          batchItems.push({
+            name: 'DEBOURS DOUANE ET FRAIS PORTUAIRES',
+            tax_group: 'A',
+            unit_price_ttc: mDebours,
+            quantity: 1
+          });
+        }
+        parsed.push({
+          id: i + 1,
+          dossier_ref: ref,
+          client_name: cName,
+          client_ifu: cIfu.length === 13 ? cIfu : '',
+          vessel_name: nav,
+          arrival_date: arrDate,
+          taxable: mTaxable,
+          debours: mDebours,
+          total: mTaxable + mDebours,
+          items: batchItems,
+          status: 'EN_ATTENTE',
+          code_mecef: null,
+          invoice_id: null,
+          error: null
+        });
+      }
+    }
+    setBatchQueue(parsed);
+  };
+
+  const handleRunBatch = async () => {
+    if (batchQueue.length === 0 || batchRunning) return;
+    setBatchRunning(true);
+
+    for (let i = 0; i < batchQueue.length; i++) {
+      const row = batchQueue[i];
+      if (row.status === 'NORMALISE') continue;
+
+      setBatchQueue((prev) =>
+        prev.map((item, idx) => (idx === i ? { ...item, status: 'EN_COURS' } : item))
+      );
+
+      try {
+        const res = await fetch(`${API_BASE}/api/normalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entity,
+            dossier_ref: row.dossier_ref,
+            invoice_type: 'FV',
+            client: {
+              ifu: row.client_ifu,
+              name: row.client_name,
+              address: 'Cotonou, Benin'
+            },
+            vessel_name: row.vessel_name,
+            arrival_date: row.arrival_date,
+            payment_type: paymentType,
+            items: row.items,
+            force: true
+          })
+        });
+        const data = await res.json();
+        if (data.success && data.data) {
+          setBatchQueue((prev) =>
+            prev.map((item, idx) =>
+              idx === i
+                ? {
+                    ...item,
+                    status: 'NORMALISE',
+                    code_mecef: data.data.code_mecef,
+                    invoice_id: data.data.id
+                  }
+                : item
+            )
+          );
+          if (autoDownloadPdf && data.data.id) {
+            triggerPdfDownload(data.data.id);
+          }
+        } else {
+          setBatchQueue((prev) =>
+            prev.map((item, idx) =>
+              idx === i ? { ...item, status: 'ERREUR', error: data.message } : item
+            )
+          );
+        }
+      } catch (err) {
+        setBatchQueue((prev) =>
+          prev.map((item, idx) =>
+            idx === i ? { ...item, status: 'ERREUR', error: err.message } : item
+          )
+        );
+      }
+    }
+
+    setBatchRunning(false);
+    fetchInvoices();
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-100 text-neutral-900 font-sans">
-      
-      {/* Barre superieure de commande et de statut e-MCF */}
-      <header className="no-print bg-neutral-900 text-white px-6 py-3 flex items-center justify-between border-b border-neutral-800 flex-shrink-0">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2.5">
-            <ShieldCheck className="w-5 h-5 text-neutral-300" />
-            <div>
-              <div className="font-bold text-sm tracking-wider uppercase">PLATEFORME e-MECeF DGI</div>
-              <div className="text-[11px] text-neutral-400">Normalisation Fiscale AGL Benin & SOCOPAO</div>
-            </div>
+    <div
+      onKeyDown={handleKeyDown}
+      className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-100 text-neutral-900 font-sans select-none"
+    >
+      {/* Datalist pour autocompletion instantanee des rubriques */}
+      <datalist id="rubriques-list">
+        {RUBRIQUES_RAPIDES.map((r) => (
+          <option key={r} value={r} />
+        ))}
+      </datalist>
+
+      {/* BARRE HAUTE COMPACTE */}
+      <header className="no-print h-12 bg-neutral-900 text-white px-4 flex items-center justify-between flex-shrink-0 border-b border-neutral-800">
+        <div className="flex items-center gap-4">
+          <div className="font-bold text-xs tracking-wider uppercase flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            POSTE DE NORMALISATION HAUTE VITESSE
           </div>
 
-          {/* Selecteur d'Entite */}
-          <div className="flex items-center bg-neutral-800 rounded p-0.5 border border-neutral-700">
+          {/* Bascule Entite AGL / SOCOPAO */}
+          <div className="flex bg-neutral-800 p-0.5 rounded border border-neutral-700">
             {['AGL', 'SOCOPAO'].map((ent) => (
               <button
                 key={ent}
+                type="button"
                 onClick={() => setEntity(ent)}
                 className={`px-3 py-1 text-xs font-bold rounded transition ${
-                  entity === ent
-                    ? 'bg-white text-neutral-900 shadow-sm'
-                    : 'text-neutral-400 hover:text-white'
+                  entity === ent ? 'bg-white text-neutral-900' : 'text-neutral-400 hover:text-white'
                 }`}
               >
-                {ent === 'AGL' ? 'AGL BENIN' : 'SOCOPAO'}
+                {ent}
               </button>
             ))}
           </div>
 
-          {/* Onglets de navigation */}
-          <nav className="flex items-center gap-1 ml-2">
+          {/* Modes de travail */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => setActiveTab('form')}
-              className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-                activeTab === 'form'
-                  ? 'bg-neutral-700 text-white'
-                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+              type="button"
+              onClick={() => setMode('speed')}
+              className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 ${
+                mode === 'speed' ? 'bg-neutral-700 text-white' : 'text-neutral-400 hover:text-white'
               }`}
             >
-              <FilePlus2 className="w-3.5 h-3.5" /> Emission de Facture
+              <Zap className="w-3.5 h-3.5" /> Saisie Rapide (1 par 1)
             </button>
             <button
+              type="button"
+              onClick={() => setMode('batch')}
+              className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 ${
+                mode === 'batch' ? 'bg-neutral-700 text-white' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Mode Lot Excel (En Masse)
+            </button>
+            <button
+              type="button"
               onClick={() => {
-                setActiveTab('journal');
+                setMode('journal');
                 fetchInvoices();
               }}
-              className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
-                activeTab === 'journal'
-                  ? 'bg-neutral-700 text-white'
-                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+              className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 ${
+                mode === 'journal' ? 'bg-neutral-700 text-white' : 'text-neutral-400 hover:text-white'
               }`}
             >
-              <History className="w-3.5 h-3.5" /> Journal des Factures ({invoices.length})
+              <History className="w-3.5 h-3.5" /> Historique ({recentInvoices.length})
             </button>
-          </nav>
+          </div>
         </div>
 
-        {/* Statut e-MCF en direct */}
+        {/* Options d'automatisation & Statut DGI */}
         <div className="flex items-center gap-4 text-xs">
-          {emcfStatus ? (
-            <div className="flex items-center gap-3 bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>
-                NIM : <strong className="font-mono">{emcfStatus.nim}</strong>
-              </span>
-              <span className="text-neutral-500">|</span>
-              <span>
-                IFU : <strong className="font-mono">{emcfStatus.ifu}</strong>
-              </span>
-              {emcfStatus.pendingRequestsCount > 0 && (
-                <>
-                  <span className="text-neutral-500">|</span>
-                  <button
-                    onClick={handleClearPending}
-                    className="text-amber-300 hover:underline font-semibold"
-                    title="Purger les factures en attente sur le serveur DGI"
-                  >
-                    {emcfStatus.pendingRequestsCount} en attente (Purger)
-                  </button>
-                </>
-              )}
+          <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300 hover:text-white">
+            <input
+              type="checkbox"
+              checked={autoDownloadPdf}
+              onChange={(e) => setAutoDownloadPdf(e.target.checked)}
+              className="rounded accent-emerald-500"
+            />
+            <span>Telecharger PDF auto</span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer text-neutral-300 hover:text-white">
+            <input
+              type="checkbox"
+              checked={autoClearAfterSuccess}
+              onChange={(e) => setAutoClearAfterSuccess(e.target.checked)}
+              className="rounded accent-emerald-500"
+            />
+            <span>Vider apres validation</span>
+          </label>
+          {emcfStatus && (
+            <div className="bg-neutral-800 px-2.5 py-1 rounded border border-neutral-700 font-mono text-[11px] text-neutral-300">
+              NIM: {emcfStatus.nim}
             </div>
-          ) : (
-            <span className="text-neutral-400"> Verification e-MCF...</span>
           )}
-          <button
-            onClick={() => fetchEmcfStatus(entity)}
-            disabled={statusLoading}
-            className="p-1.5 bg-neutral-800 hover:bg-neutral-700 rounded border border-neutral-700 text-neutral-300"
-            title="Rafraichir la connexion DGI"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${statusLoading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </header>
 
-      {/* VUE 1 : EMISSION ET APERCU FACTURE A4 */}
-      {activeTab === 'form' ? (
-        <div className="flex flex-1 overflow-hidden">
+      {/* MODE 1 : POSTE DE SAISIE RAPIDE ZERO-SCROLL */}
+      {mode === 'speed' && (
+        <div className="flex-1 grid grid-cols-12 overflow-hidden">
           
-          {/* Colonne Gauche : Formulaire Complet Multi-Articles */}
-          <div className="no-print w-[620px] bg-white border-r border-neutral-300 flex flex-col h-full overflow-y-auto p-5 gap-4 text-xs flex-shrink-0">
+          {/* ZONE CENTRALE DE SAISIE (8 colonnes - Zero Scroll) */}
+          <div className="col-span-8 bg-white border-r border-neutral-300 p-4 flex flex-col justify-between overflow-hidden">
             
-            <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
-              <div>
-                <h2 className="font-bold text-sm uppercase tracking-wide text-neutral-900">
-                  Saisie et Ventilation du Dossier ({entity})
-                </h2>
-                <p className="text-[11px] text-neutral-500">
-                  Ajoutez toutes les rubriques taxables et debours du dossier avant normalisation.
-                </p>
-              </div>
-              <button
-                onClick={resetForm}
-                className="px-2.5 py-1 border border-neutral-300 rounded hover:bg-neutral-100 text-neutral-700 font-semibold flex items-center gap-1"
-              >
-                <RotateCcw className="w-3 h-3" /> Nouveau
-              </button>
-            </div>
+            <div className="space-y-3 overflow-y-auto pr-1">
+              
+              {/* BANDEAU DE STATUT GEANT (IMPOSSIBLE A RATER) */}
+              {statusFeedback && (
+                <div
+                  className={`p-3 rounded border-2 flex items-center justify-between ${
+                    statusFeedback.type === 'success'
+                      ? 'bg-emerald-950 text-white border-emerald-500'
+                      : 'bg-red-950 text-white border-red-500'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {statusFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-6 h-6 text-red-400 flex-shrink-0" />
+                    )}
+                    <div>
+                      <div className="font-bold text-sm tracking-wide uppercase font-mono">
+                        {statusFeedback.title}
+                      </div>
+                      <div className="text-xs text-neutral-300 mt-0.5">
+                        {statusFeedback.detail}
+                      </div>
+                    </div>
+                  </div>
 
-            {/* Bandeaux d'erreur et d'information */}
-            {errorMessage && (
-              <div className="bg-red-50 border border-red-300 text-red-900 p-3 rounded flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-700" />
-                <div className="font-medium leading-relaxed">{errorMessage}</div>
-              </div>
-            )}
+                  {statusFeedback.invoice && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => triggerPdfDownload(statusFeedback.invoice.id)}
+                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold text-xs rounded flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Re-telecharger PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewInvoice(statusFeedback.invoice)}
+                        className="px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-xs rounded flex items-center gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Voir A4
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-            {infoBanner && (
-              <div className="bg-neutral-100 border border-neutral-300 text-neutral-800 p-2.5 rounded flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-neutral-700" />
-                <div className="font-medium leading-relaxed">{infoBanner}</div>
-              </div>
-            )}
+              {/* LIGNE 1 : Dossier + Type + Navire (Epinglable) + Date (Epinglable) */}
+              <div className="grid grid-cols-12 gap-2.5 bg-neutral-100 p-3 rounded border border-neutral-200 items-end">
+                <div className="col-span-3">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    1. N° Facture / Dossier *
+                  </label>
+                  <input
+                    ref={dossierInputRef}
+                    type="text"
+                    placeholder="Ex: 848647"
+                    value={dossierRef}
+                    onChange={(e) => setDossierRef(e.target.value)}
+                    autoFocus
+                    className="w-full border-2 border-neutral-900 rounded px-2.5 py-1.5 text-sm font-bold bg-white outline-none"
+                  />
+                </div>
 
-            {/* Section 1 : Type de Facture et Reference Dossier */}
-            <div className="border border-neutral-200 rounded p-3.5 bg-neutral-50 space-y-3">
-              <div className="font-bold text-[11px] uppercase tracking-wider text-neutral-600">
-                1. Nature de la Facture & Reference Dossier
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Type de Facture DGI *</label>
+                <div className="col-span-3">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    Type de Facture
+                  </label>
                   <select
                     value={invoiceType}
                     onChange={(e) => setInvoiceType(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 bg-white font-semibold outline-none focus:border-neutral-900"
+                    className="w-full border border-neutral-300 rounded px-2 py-1.5 text-xs font-bold bg-white outline-none focus:border-neutral-900"
                   >
-                    {INVOICE_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
+                    <option value="FV">FV - Facture de Vente</option>
+                    <option value="FA">FA - Facture d'Avoir</option>
+                    <option value="EV">EV - Vente Export</option>
+                    <option value="EA">EA - Avoir Export</option>
                   </select>
                 </div>
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">N° Dossier / Facture Interne *</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: DOS-2026-8461"
-                    value={dossierRef}
-                    onChange={(e) => setDossierRef(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 bg-white outline-none focus:border-neutral-900 font-semibold"
-                  />
-                </div>
-              </div>
 
-              {/* Champ conditionnel obligatoire si Facture d'Avoir (FA / EA) */}
-              {(invoiceType === 'FA' || invoiceType === 'EA') && (
-                <div className="pt-2 border-t border-neutral-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-neutral-900">
-                      Code MECeF de la Facture Originale (24 caracteres) *
+                <div className="col-span-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-neutral-700 uppercase">
+                      Nom du Navire
                     </label>
-                    <select
-                      onChange={(e) => {
-                        const inv = invoices.find((i) => String(i.id) === e.target.value);
-                        if (inv) {
-                          setOriginalMecefCode((inv.code_mecef || '').replace(/[^A-Za-z0-9]/g, ''));
-                        }
-                      }}
-                      className="text-[11px] border border-neutral-300 rounded px-2 py-0.5 bg-white"
+                    <button
+                      type="button"
+                      onClick={() => setPinVessel(!pinVessel)}
+                      className={`text-[10px] flex items-center gap-0.5 px-1.5 rounded ${
+                        pinVessel ? 'bg-neutral-900 text-white' : 'text-neutral-500'
+                      }`}
+                      title="Garder le meme navire pour les factures suivantes"
                     >
-                      <option value="">Choisir depuis une facture de vente existante...</option>
-                      {invoices
-                        .filter((i) => i.invoice_type === 'FV' || i.invoice_type === 'EV')
-                        .map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.dossier_ref} - {i.client_name} ({i.code_mecef})
-                          </option>
-                        ))}
-                    </select>
+                      <Pin className="w-2.5 h-2.5" /> {pinVessel ? 'Epingle' : 'Libre'}
+                    </button>
                   </div>
                   <input
                     type="text"
-                    placeholder="Ex: TEST2JVCNKKP4MPJXPM2L6AO (sans les tirets)"
-                    value={originalMecefCode}
-                    onChange={(e) => setOriginalMecefCode(e.target.value)}
-                    className="w-full border border-neutral-400 rounded px-2.5 py-1.5 bg-white font-mono uppercase outline-none focus:border-neutral-900"
+                    placeholder="Ex: MSC LAURA"
+                    value={vesselName}
+                    onChange={(e) => setVesselName(e.target.value)}
+                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-xs font-semibold bg-white outline-none focus:border-neutral-900"
                   />
                 </div>
-              )}
-            </div>
 
-            {/* Section 2 : Identification Client */}
-            <div className="border border-neutral-200 rounded p-3.5 space-y-3">
-              <div className="font-bold text-[11px] uppercase tracking-wider text-neutral-600">
-                2. Identification du Client (Acheteur)
+                <div className="col-span-3">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    Date d'Arrivee
+                  </label>
+                  <input
+                    type="date"
+                    value={arrivalDate}
+                    onChange={(e) => setArrivalDate(e.target.value)}
+                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-xs font-semibold bg-white outline-none focus:border-neutral-900"
+                  />
+                </div>
+
+                {(invoiceType === 'FA' || invoiceType === 'EA') && (
+                  <div className="col-span-12 pt-2 border-t border-neutral-300 flex items-center gap-3">
+                    <label className="text-xs font-bold text-red-800 whitespace-nowrap">
+                      Code MECeF Facture Originale (24 car.) * :
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Collez le Code MECeF de la facture a annuler/corriger"
+                      value={originalMecefCode}
+                      onChange={(e) => setOriginalMecefCode(e.target.value)}
+                      className="flex-1 border border-neutral-400 rounded px-2.5 py-1 text-xs font-mono uppercase bg-white"
+                    />
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">IFU Client (13 chiffres)</label>
+
+              {/* LIGNE 2 : Client (IFU 13 chiffres -> Nom Auto | Adresse) */}
+              <div className="grid grid-cols-12 gap-2.5 bg-neutral-100 p-3 rounded border border-neutral-200">
+                <div className="col-span-3">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    2. IFU Client (13 ch.)
+                  </label>
                   <input
                     type="text"
                     maxLength={13}
                     placeholder="Vide si etranger"
                     value={clientIfu}
                     onChange={(e) => handleIfuChange(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 font-mono outline-none focus:border-neutral-900"
+                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-xs font-mono bg-white outline-none focus:border-neutral-900"
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="font-semibold text-neutral-700 block mb-1">Nom / Raison Sociale Client *</label>
+                <div className="col-span-5">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    Nom / Raison Sociale du Client *
+                  </label>
                   <input
                     type="text"
-                    placeholder="Raison sociale ou nom complet"
+                    placeholder="Saisissez le nom du client"
                     value={clientName}
                     onChange={(e) => setClientName(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900 font-semibold"
+                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-xs font-bold bg-white outline-none focus:border-neutral-900"
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Adresse</label>
+                <div className="col-span-4">
+                  <label className="text-[11px] font-bold text-neutral-700 block mb-1 uppercase">
+                    Adresse Client
+                  </label>
                   <input
                     type="text"
-                    placeholder="Adresse geographique"
+                    placeholder="Cotonou, Benin"
                     value={clientAddress}
                     onChange={(e) => setClientAddress(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900"
+                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-xs bg-white outline-none focus:border-neutral-900"
                   />
-                </div>
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Telephone / Email</label>
-                  <input
-                    type="text"
-                    placeholder="Contact client"
-                    value={clientContact}
-                    onChange={(e) => setClientContact(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Section 3 : Mentions Maritimes */}
-            <div className="border border-neutral-200 rounded p-3.5 space-y-2.5">
-              <div className="font-bold text-[11px] uppercase tracking-wider text-neutral-600">
-                3. Mentions Maritimes (Navire, Escale, Connaissement)
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Nom du Navire</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: MSC LAURA"
-                    value={vesselName}
-                    onChange={(e) => setVesselName(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Date d'Arrivee</label>
-                  <input
-                    type="date"
-                    value={arrivalDate}
-                    onChange={(e) => setArrivalDate(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900"
-                  />
-                </div>
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">N° BL / Connaissement</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: MEDU1234567"
-                    value={blNumber}
-                    onChange={(e) => setBlNumber(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none focus:border-neutral-900"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Section 4 : Grille Dynamique Multi-Articles */}
-            <div className="border border-neutral-300 rounded p-3.5 space-y-3 bg-white">
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-[11px] uppercase tracking-wider text-neutral-800">
-                  4. Rubriques de Facturation & Ventilation Fiscale ({items.length} ligne{items.length > 1 ? 's' : ''})
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowPasteBox(!showPasteBox)}
-                    className="px-2 py-1 border border-neutral-300 rounded text-[11px] font-semibold hover:bg-neutral-100 flex items-center gap-1"
-                  >
-                    <Upload className="w-3 h-3" /> Coller depuis Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addItem('', 'B', '')}
-                    className="px-2.5 py-1 bg-neutral-900 text-white rounded text-[11px] font-semibold hover:bg-neutral-800 flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" /> Ajouter Ligne
-                  </button>
                 </div>
               </div>
 
-              {/*Ajout rapide depuis le catalogue preprogramme */}
-              <div>
-                <select
-                  onChange={handleSelectCatalog}
-                  defaultValue=""
-                  className="w-full border border-neutral-300 rounded px-2.5 py-1.5 bg-neutral-50 text-neutral-700 text-[11px] outline-none focus:border-neutral-900"
-                >
-                  <option value="">+ Inserer rapidement une rubrique preprogrammee AGL / SOCOPAO...</option>
-                  {catalog.map((cat) => (
-                    <option key={cat.code} value={cat.code}>
-                      [{cat.tax_group}] {cat.name} ({cat.category})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Zone Copier/Coller depuis Excel RECAP */}
-              {showPasteBox && (
-                <div className="bg-neutral-50 border border-neutral-300 rounded p-3 space-y-2">
-                  <div className="text-[11px] font-semibold text-neutral-700">
-                    Collez vos lignes depuis Excel (Format : Libelle [TAB] Montant TTC [TAB] Groupe A ou B) :
-                  </div>
-                  <textarea
-                    rows={3}
-                    placeholder={"MANUTENTION CONTENEUR\t118000\tB\nDEBOURS DOUANE\t50000\tA"}
-                    value={pasteText}
-                    onChange={(e) => setPasteText(e.target.value)}
-                    className="w-full border border-neutral-300 rounded p-2 font-mono text-[11px] outline-none"
-                  />
-                  <div className="flex justify-end gap-2">
+              {/* LIGNE 3 : GRILLE ULTRA-RAPIDE DES RUBRIQUES (Style Excel RECAP) */}
+              <div className="border border-neutral-300 rounded overflow-hidden">
+                <div className="bg-neutral-900 text-white px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="font-bold uppercase tracking-wider">
+                    3. Lignes de la Facture (Prestations TTC 18% & Debours 0%)
+                  </span>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setShowPasteBox(false)}
-                      className="px-2.5 py-1 border border-neutral-300 rounded text-[11px]"
+                      onClick={() => addRow('B')}
+                      className="px-2.5 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-[11px] font-bold flex items-center gap-1"
                     >
-                      Fermer
+                      <Plus className="w-3 h-3" /> + Ligne Taxable 18%
                     </button>
                     <button
                       type="button"
-                      onClick={handleParsePaste}
-                      className="px-3 py-1 bg-neutral-900 text-white rounded text-[11px] font-semibold"
+                      onClick={() => addRow('A')}
+                      className="px-2.5 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-[11px] font-bold flex items-center gap-1"
                     >
-                      Importer les lignes
+                      <Plus className="w-3 h-3" /> + Ligne Debours 0%
                     </button>
                   </div>
                 </div>
-              )}
 
-              {/* Liste des lignes d'articles */}
-              <div className="space-y-2.5">
-                {items.map((item, idx) => {
-                  const unitTtc = computeUnitPriceTtc(item);
-                  const lineTotalTtc = Math.round(unitTtc * (Number(item.quantity) || 0)) + (Number(item.tax_specific) || 0);
-                  const isTax18 = item.tax_group === 'B' || item.tax_group === 'D';
-                  const lineHt = isTax18 ? Math.round(lineTotalTtc / 1.18) : lineTotalTtc;
-                  const lineTva = lineTotalTtc - lineHt;
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="border border-neutral-200 rounded p-2.5 bg-neutral-50/70 space-y-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-neutral-500 w-5">#{idx + 1}</span>
-                        <input
-                          type="text"
-                          placeholder="Designation de la prestation ou du debours..."
-                          value={item.name}
-                          onChange={(e) => updateItem(item.id, 'name', e.target.value)}
-                          className="flex-1 border border-neutral-300 rounded px-2.5 py-1 bg-white font-semibold outline-none focus:border-neutral-900"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item.id)}
-                          disabled={items.length <= 1}
-                          className="p-1 text-neutral-400 hover:text-red-600 disabled:opacity-30"
-                          title="Supprimer cette ligne"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-12 gap-2 items-end pl-7">
-                        <div className="col-span-5">
-                          <label className="text-[10px] font-semibold text-neutral-500 block mb-0.5">
-                            Groupe Fiscal DGI
-                          </label>
-                          <select
-                            value={item.tax_group}
-                            onChange={(e) => updateItem(item.id, 'tax_group', e.target.value)}
-                            className="w-full border border-neutral-300 rounded px-2 py-1 bg-white text-[11px] font-medium outline-none"
-                          >
-                            {TAX_GROUPS.map((g) => (
-                              <option key={g.value} value={g.value}>{g.label}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="col-span-2">
-                          <label className="text-[10px] font-semibold text-neutral-500 block mb-0.5">
-                            Mode Saisie
-                          </label>
-                          <select
-                            value={item.input_mode}
-                            onChange={(e) => updateItem(item.id, 'input_mode', e.target.value)}
-                            className="w-full border border-neutral-300 rounded px-1.5 py-1 bg-white text-[11px] font-semibold outline-none"
-                          >
-                            <option value="TTC">Prix TTC</option>
-                            <option value="HT">Prix HT</option>
-                          </select>
-                        </div>
-
-                        <div className="col-span-3">
-                          <label className="text-[10px] font-semibold text-neutral-500 block mb-0.5">
-                            Montant ({item.input_mode})
-                          </label>
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-neutral-100 border-b border-neutral-300 text-neutral-600 text-[11px] uppercase">
+                      <th className="py-1.5 px-2 text-center w-8">#</th>
+                      <th className="py-1.5 px-2 text-left">Rubrique / Libelle de la ligne</th>
+                      <th className="py-1.5 px-2 text-center w-44">Regime Fiscal</th>
+                      <th className="py-1.5 px-2 text-right w-44">Montant TTC (FCFA)</th>
+                      <th className="py-1.5 px-2 text-center w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, idx) => (
+                      <tr key={r.id} className="border-b border-neutral-200 hover:bg-neutral-50">
+                        <td className="py-1.5 px-2 text-center font-bold text-neutral-400">
+                          {idx + 1}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <input
+                            type="text"
+                            list="rubriques-list"
+                            placeholder="Tapez ou choisissez une rubrique..."
+                            value={r.name}
+                            onChange={(e) => updateRow(r.id, 'name', e.target.value)}
+                            className="w-full border border-neutral-300 rounded px-2.5 py-1.5 font-semibold outline-none focus:border-neutral-900"
+                          />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <div className="grid grid-cols-2 bg-neutral-200 p-0.5 rounded">
+                            <button
+                              type="button"
+                              onClick={() => updateRow(r.id, 'tax_group', 'B')}
+                              className={`py-1 rounded text-[11px] font-bold transition ${
+                                r.tax_group === 'B'
+                                  ? 'bg-neutral-900 text-white shadow-sm'
+                                  : 'text-neutral-600 hover:text-neutral-900'
+                              }`}
+                            >
+                              TTC 18%
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(r.id, 'tax_group', 'A')}
+                              className={`py-1 rounded text-[11px] font-bold transition ${
+                                r.tax_group === 'A'
+                                  ? 'bg-neutral-900 text-white shadow-sm'
+                                  : 'text-neutral-600 hover:text-neutral-900'
+                              }`}
+                            >
+                              Debours 0%
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2">
                           <input
                             type="number"
                             min="0"
                             placeholder="0"
-                            value={item.raw_price}
-                            onChange={(e) => updateItem(item.id, 'raw_price', e.target.value)}
-                            className="w-full border border-neutral-300 rounded px-2 py-1 bg-white font-bold text-right outline-none focus:border-neutral-900"
+                            value={r.unit_price_ttc}
+                            onChange={(e) => updateRow(r.id, 'unit_price_ttc', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.ctrlKey) {
+                                e.preventDefault();
+                                handleSubmit(false);
+                              }
+                            }}
+                            className="w-full border border-neutral-300 rounded px-2.5 py-1.5 text-right font-mono font-bold text-sm outline-none focus:border-neutral-900"
                           />
-                        </div>
-
-                        <div className="col-span-2">
-                          <label className="text-[10px] font-semibold text-neutral-500 block mb-0.5">
-                            Qte
-                          </label>
-                          <input
-                            type="number"
-                            min="0.01"
-                            step="any"
-                            value={item.quantity}
-                            onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
-                            className="w-full border border-neutral-300 rounded px-2 py-1 bg-white text-right outline-none focus:border-neutral-900"
-                          />
-                        </div>
-                      </div>
-
-                      {lineTotalTtc > 0 && (
-                        <div className="pl-7 flex justify-between items-center text-[10px] text-neutral-600 pt-1 border-t border-neutral-200/70">
-                          <span>
-                            {isTax18
-                              ? `Base HT : ${lineHt.toLocaleString('fr-FR')} FCFA | TVA (18%) : ${lineTva.toLocaleString('fr-FR')} FCFA`
-                              : 'Exonere de TVA (0%)'}
-                          </span>
-                          <span className="font-bold text-neutral-900">
-                            Sous-total TTC : {lineTotalTtc.toLocaleString('fr-FR')} FCFA [{item.tax_group}]
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Section 5 : Paiement, AIB et Message */}
-            <div className="border border-neutral-200 rounded p-3.5 space-y-3">
-              <div className="font-bold text-[11px] uppercase tracking-wider text-neutral-600">
-                5. Reglement & Options Fiscales
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Mode de Paiement</label>
-                  <select
-                    value={paymentType}
-                    onChange={(e) => setPaymentType(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 bg-white font-medium outline-none"
-                  >
-                    {PAYMENT_TYPES.map((p) => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeRow(r.id)}
+                            disabled={rows.length <= 1}
+                            className="text-neutral-400 hover:text-red-600 disabled:opacity-20"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
                     ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-semibold text-neutral-700 block mb-1">Retenue AIB</label>
-                  <select
-                    value={aibType}
-                    onChange={(e) => setAibType(e.target.value)}
-                    className="w-full border border-neutral-300 rounded px-2.5 py-1.5 bg-white font-medium outline-none"
-                  >
-                    <option value="">Aucun AIB (0%)</option>
-                    <option value="A">AIB Type A (1%)</option>
-                    <option value="B">AIB Type B (5%)</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="font-semibold text-neutral-700 block mb-1">Message Commercial / Pied de page (Optionnel)</label>
-                <input
-                  type="text"
-                  placeholder="Ex: Merci de votre confiance."
-                  value={customMessage}
-                  onChange={(e) => setCustomMessage(e.target.value)}
-                  className="w-full border border-neutral-300 rounded px-2.5 py-1.5 outline-none"
-                />
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* Section 6 : Synthese Arithmetique et Bouton d'Emission */}
-            <div className="bg-neutral-900 text-white rounded p-4 space-y-2">
-              <div className="flex justify-between text-neutral-300 text-[11px]">
-                <span>Prestations Imposables HT (Grp B/D) :</span>
-                <span className="font-mono">{liveTotals.baseHtB.toLocaleString('fr-FR')} FCFA</span>
-              </div>
-              <div className="flex justify-between text-neutral-300 text-[11px]">
-                <span>TVA 18% (Grp B/D) :</span>
-                <span className="font-mono">{liveTotals.tvaB.toLocaleString('fr-FR')} FCFA</span>
-              </div>
-              <div className="flex justify-between text-neutral-300 text-[11px]">
-                <span>Debours / Exonere (Grp A/C/E/F) :</span>
-                <span className="font-mono">{(liveTotals.totalGroupA + liveTotals.totalOtherExon).toLocaleString('fr-FR')} FCFA</span>
-              </div>
-              <div className="border-t border-neutral-700 pt-2 flex justify-between items-center font-bold text-sm">
-                <span>TOTAL GENERAL TTC :</span>
-                <span className="font-mono text-base">{liveTotals.totalTtc.toLocaleString('fr-FR')} FCFA</span>
+            {/* BARRE DE PIED FIXE : TOTAUX EN DIRECT + BOUTON GEANT DE VALIDATION */}
+            <div className="pt-3 border-t border-neutral-300 flex items-center justify-between gap-4 bg-white flex-shrink-0">
+              <div className="flex items-center gap-5 text-xs">
+                <div>
+                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">Prestations HT</span>
+                  <span className="font-mono font-bold text-sm">{totals.ht.toLocaleString('fr-FR')} F</span>
+                </div>
+                <div>
+                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">TVA (18%)</span>
+                  <span className="font-mono font-bold text-sm">{totals.tva.toLocaleString('fr-FR')} F</span>
+                </div>
+                <div>
+                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">Debours (0%)</span>
+                  <span className="font-mono font-bold text-sm">{totals.debours.toLocaleString('fr-FR')} F</span>
+                </div>
+                <div className="pl-4 border-l border-neutral-300">
+                  <span className="text-neutral-500 block text-[10px] uppercase font-bold">NET A PAYER TTC</span>
+                  <span className="font-mono font-extrabold text-lg text-neutral-900">
+                    {totals.totalTtc.toLocaleString('fr-FR')} FCFA
+                  </span>
+                </div>
               </div>
 
               <button
                 type="button"
-                onClick={() => handleNormalize(false)}
-                disabled={loading}
-                className="w-full mt-2 bg-white hover:bg-neutral-200 disabled:bg-neutral-600 disabled:text-neutral-400 text-neutral-900 font-bold py-2.5 rounded transition uppercase tracking-wider text-xs"
+                onClick={() => handleSubmit(false)}
+                disabled={submitting}
+                className="px-8 py-3.5 bg-neutral-900 hover:bg-neutral-800 disabled:bg-neutral-400 text-white font-bold text-sm rounded shadow-md uppercase tracking-wider flex items-center gap-2 transition"
               >
-                {loading ? 'TRANSMISSION ET CERTIFICATION DGI EN COURS...' : 'VALIDER ET NORMALISER LA FACTURE'}
+                {submitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> NORMALISATION DGI EN COURS...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" /> VALIDER & TELECHARGER PDF (ENTREE)
+                  </>
+                )}
               </button>
             </div>
           </div>
 
-          {/* Colonne Droite : Rendu Facture A4 SyGMEF (Option B) */}
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-start bg-neutral-200/70">
-            {normalizedData ? (
-              <>
-                <div className="no-print w-full max-w-[794px] flex items-center justify-between bg-white border border-neutral-300 px-4 py-2.5 rounded mb-4 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                    <span>
-                      Code MECeF : <strong className="font-mono">{normalizedData.code_mecef}</strong>
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {(normalizedData.invoice_type === 'FV' || normalizedData.invoice_type === 'EV') && (
-                      <button
-                        onClick={() => loadInvoiceForCreditNote(normalizedData)}
-                        className="px-3 py-1.5 border border-neutral-400 hover:bg-neutral-100 rounded text-xs font-semibold"
-                      >
-                        Emettre un Avoir (FA)
-                      </button>
-                    )}
-                    <button
-                      onClick={() => window.print()}
-                      className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-4 py-1.5 rounded flex items-center gap-1.5 shadow-sm"
-                    >
-                      <Printer className="w-4 h-4" /> Imprimer / Telecharger PDF (A4)
-                    </button>
-                  </div>
-                </div>
+          {/* COLONNE DROITE (4 colonnes) : FIL D'ACTIVITE EN DIRECT & TELECHARGEMENT 1-CLIC */}
+          <div className="col-span-4 bg-neutral-50 flex flex-col h-full overflow-hidden">
+            <div className="p-3 bg-neutral-200 border-b border-neutral-300 flex items-center justify-between">
+              <span className="font-bold text-xs uppercase tracking-wider text-neutral-800">
+                Factures Validees Recemment ({recentInvoices.length})
+              </span>
+              <input
+                type="text"
+                placeholder="Filtrer dossier, client..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  fetchInvoices(e.target.value);
+                }}
+                className="border border-neutral-300 rounded px-2 py-1 text-xs bg-white w-44 outline-none"
+              />
+            </div>
 
-                <InvoiceSheetA4 invoice={normalizedData} />
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-neutral-500 gap-3 max-w-md text-center">
-                <FileText className="w-14 h-14 stroke-1 text-neutral-400" />
-                <div className="font-semibold text-sm text-neutral-700">
-                  Apercu Officiel A4 SyGMEF (Option B)
+            <div className="flex-1 overflow-y-auto divide-y divide-neutral-200 p-2 space-y-1.5">
+              {recentInvoices.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="bg-white border border-neutral-200 rounded p-2.5 hover:border-neutral-400 transition flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-1.5 py-0.5 bg-neutral-900 text-white font-bold text-[10px] rounded">
+                        {inv.entity}
+                      </span>
+                      <span className="font-bold text-xs truncate">
+                        Dossier {inv.dossier_ref}
+                      </span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-emerald-100 text-emerald-900 rounded">
+                        ACCEPTEE
+                      </span>
+                    </div>
+                    <div className="text-xs text-neutral-700 font-medium truncate mt-0.5">
+                      {inv.client_name}
+                    </div>
+                    <div className="text-[10px] font-mono text-neutral-500 mt-0.5">
+                      {inv.code_mecef} | { inv.date_time}
+                    </div>
+                  </div>
+
+                  <div className="text-right flex-shrink-0 space-y-1">
+                    <div className="font-mono font-bold text-xs text-neutral-900">
+                      {Number(inv.total_ttc).toLocaleString('fr-FR')} F
+                    </div>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewInvoice(inv)}
+                        className="px-2 py-1 border border-neutral-300 hover:bg-neutral-100 rounded text-[10px] font-bold"
+                        title="Apercu A4"
+                      >
+                        Voir
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerPdfDownload(inv.id)}
+                        className="px-2 py-1 bg-neutral-900 hover:bg-neutral-800 text-white rounded text-[10px] font-bold flex items-center gap-1"
+                        title="Telecharger directement le fichier PDF"
+                      >
+                        <Download className="w-3 h-3" /> PDF
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-neutral-500 leading-relaxed">
-                  Completez les rubriques du dossier a gauche et validez pour obtenir la facture A4 certifiee par la DGI avec son QR Code et sa ventilation fiscale officielle.
-                </p>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         </div>
-      ) : (
-        /* VUE 2 : JOURNAL / HISTORIQUE DES FACTURES NORMALISEES */
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-6xl mx-auto bg-white border border-neutral-300 rounded shadow-sm">
-            <div className="p-4 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="font-bold text-sm uppercase tracking-wide">
-                  Journal des Factures Normalisees
-                </h2>
-                <p className="text-xs text-neutral-500">
-                  Historique local certifie avec reimpression PDF et emission rapide de factures d'avoir.
-                </p>
-              </div>
+      )}
 
-              <div className="flex items-center gap-2 text-xs">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-neutral-400" />
-                  <input
-                    type="text"
-                    placeholder="Dossier, client, navire, MECeF..."
-                    value={journalSearch}
-                    onChange={(e) => {
-                      setJournalSearch(e.target.value);
-                      fetchInvoices(e.target.value, journalTypeFilter);
-                    }}
-                    className="pl-8 pr-3 py-1.5 border border-neutral-300 rounded w-64 outline-none focus:border-neutral-900"
-                  />
-                </div>
-                <select
-                  value={journalTypeFilter}
-                  onChange={(e) => {
-                    setJournalTypeFilter(e.target.value);
-                    fetchInvoices(journalSearch, e.target.value);
-                  }}
-                  className="border border-neutral-300 rounded px-2.5 py-1.5 bg-white outline-none"
-                >
-                  <option value="">Tous les types</option>
-                  <option value="FV">FV - Vente</option>
-                  <option value="FA">FA - Avoir</option>
-                  <option value="EV">EV - Export Vente</option>
-                  <option value="EA">EA - Export Avoir</option>
-                </select>
+      {/* MODE 2 : TRAITEMENT DE LOT EN MASSE (COPIER-COLLER EXCEL) */}
+      {mode === 'batch' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-6xl mx-auto bg-white border border-neutral-300 rounded shadow-sm p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
+              <div>
+                <h2 className="font-bold text-sm uppercase tracking-wider">
+                  Normalisation de Masse par Lot Excel ({entity})
+                </h2>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  Collez directement un tableau de plusieurs factures depuis Excel pour les normaliser toutes a la chaine et telecharger leurs PDF automatiquement.
+                </p>
               </div>
             </div>
 
-            {invoices.length === 0 ? (
-              <div className="p-12 text-center text-neutral-500 text-xs">
-                Aucune facture enregistree pour ces criteres.
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-neutral-700">
+                Format des colonnes Excel a coller : N° Dossier [TAB] Nom Client [TAB] IFU (optionnel) [TAB] Navire [TAB] Date (AAAA-MM-JJ) [TAB] Montant TTC 18% [TAB] Montant Debours 0%
               </div>
-            ) : (
-              <table className="w-full text-left border-collapse text-xs">
+              <textarea
+                rows={5}
+                placeholder={"849001\tSTE IMPORT BENIN\t0202430066359\tMSC LAURA\t2026-10-27\t118000\t50000\n849002\tTRANSIT EXPRESS\t\tMSC LAURA\t2026-10-27\t236000\t120000"}
+                value={batchText}
+                onChange={(e) => setBatchText(e.target.value)}
+                className="w-full border border-neutral-300 rounded p-3 font-mono text-xs outline-none focus:border-neutral-900"
+              />
+              <div className="flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={handleParseBatch}
+                  className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold rounded"
+                >
+                  1. Analyser et Charger la File d'Attente
+                </button>
+
+                {batchQueue.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRunBatch}
+                    disabled={batchRunning}
+                    className="px-6 py-2.5 bg-neutral-900 hover:bg-neutral-800 disabled:bg-neutral-400 text-white text-xs font-bold rounded uppercase tracking-wider"
+                  >
+                    {batchRunning
+                      ? 'Normalisation du lot en cours...'
+                      : `2. Lancer la Normalisation des ${batchQueue.length} Factures`}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {batchQueue.length > 0 && (
+              <table className="w-full border-collapse text-xs border border-neutral-300 mt-4">
                 <thead>
-                  <tr className="bg-neutral-100 border-b border-neutral-300 text-neutral-700">
-                    <th className="py-2.5 px-3">Date DGI</th>
-                    <th className="py-2.5 px-3">Entite</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">N° Dossier</th>
-                    <th className="py-2.5 px-3">Client</th>
-                    <th className="py-2.5 px-3">Navire</th>
-                    <th className="py-2.5 px-3 text-right">Total TTC</th>
-                    <th className="py-2.5 px-3">Code MECeF / DGI</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  <tr className="bg-neutral-100 border-b border-neutral-300">
+                    <th className="p-2 text-left">N° Dossier</th>
+                    <th className="p-2 text-left">Client</th>
+                    <th className="p-2 text-left">Navire</th>
+                    <th className="p-2 text-right">TTC 18%</th>
+                    <th className="p-2 text-right">Debours 0%</th>
+                    <th className="p-2 text-right">Total TTC</th>
+                    <th className="p-2 text-center">Statut</th>
+                    <th className="p-2 text-left">Code MECeF / Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((inv) => (
-                    <tr key={inv.id} className="border-b border-neutral-200 hover:bg-neutral-50">
-                      <td className="py-2.5 px-3 font-mono text-[11px]">{inv.date_time}</td>
-                      <td className="py-2.5 px-3 font-bold">{inv.entity}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded bg-neutral-200 font-bold text-[10px]">
-                          {inv.invoice_type}
-                        </span>
+                  {batchQueue.map((row) => (
+                    <tr key={row.id} className="border-b border-neutral-200">
+                      <td className="p-2 font-bold">{row.dossier_ref}</td>
+                      <td className="p-2">{row.client_name}</td>
+                      <td className="p-2">{row.vessel_name}</td>
+                      <td className="p-2 text-right font-mono">{row.taxable.toLocaleString('fr-FR')}</td>
+                      <td className="p-2 text-right font-mono">{row.debours.toLocaleString('fr-FR')}</td>
+                      <td className="p-2 text-right font-mono font-bold">{row.total.toLocaleString('fr-FR')}</td>
+                      <td className="p-2 text-center font-bold">
+                        {row.status === 'NORMALISE' && (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded text-[10px]">
+                            ACCEPTEE
+                          </span>
+                        )}
+                        {row.status === 'EN_COURS' && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-[10px]">
+                            EN COURS...
+                          </span>
+                        )}
+                        {row.status === 'EN_ATTENTE' && (
+                          <span className="px-2 py-0.5 bg-neutral-200 text-neutral-700 rounded text-[10px]">
+                            PRET
+                          </span>
+                        )}
+                        {row.status === 'ERREUR' && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-900 rounded text-[10px]">
+                            ERREUR
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold">{inv.dossier_ref}</td>
-                      <td className="py-2.5 px-3">{inv.client_name}</td>
-                      <td className="py-2.5 px-3 text-neutral-600">{inv.vessel_name || '-'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold">
-                        {Number(inv.total_ttc).toLocaleString('fr-FR')} FCFA
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-[11px]">{inv.code_mecef}</td>
-                      <td className="py-2.5 px-3 text-right space-x-2">
-                        <button
-                          onClick={() => {
-                            setNormalizedData(inv);
-                            setActiveTab('form');
-                          }}
-                          className="px-2.5 py-1 bg-neutral-900 text-white rounded text-[11px] font-semibold hover:bg-neutral-800"
-                        >
-                          Afficher / PDF
-                        </button>
-                        {(inv.invoice_type === 'FV' || inv.invoice_type === 'EV') && (
-                          <button
-                            onClick={() => loadInvoiceForCreditNote(inv)}
-                            className="px-2.5 py-1 border border-neutral-400 rounded text-[11px] font-semibold hover:bg-neutral-100"
-                          >
-                            Creer Avoir
-                          </button>
+                      <td className="p-2 font-mono text-[11px]">
+                        {row.code_mecef ? (
+                          <div className="flex items-center justify-between">
+                            <span>{row.code_mecef}</span>
+                            <button
+                              type="button"
+                              onClick={() => triggerPdfDownload(row.invoice_id)}
+                              className="px-2 py-0.5 bg-neutral-900 text-white rounded text-[10px] font-sans font-bold"
+                            >
+                              PDF
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-red-600 font-sans">{row.error || '-'}</span>
                         )}
                       </td>
                     </tr>
@@ -1140,29 +1079,134 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal d'Alerte Idempotence / Anti-Doublon */}
-      {duplicateWarning && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded max-w-md w-full p-6 shadow-2xl border border-neutral-300">
-            <div className="flex items-center gap-2.5 text-neutral-900 mb-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600" />
-              <h3 className="font-bold text-sm uppercase">Verification Anti-Doublon</h3>
+      {/* MODE 3 : HISTORIQUE COMPLET */}
+      {mode === 'journal' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-6xl mx-auto bg-white border border-neutral-300 rounded shadow-sm p-4">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-neutral-200">
+              <h2 className="font-bold text-sm uppercase">
+                Historique Complet des Factures Certifiees ({recentInvoices.length})
+              </h2>
+              <input
+                type="text"
+                placeholder="Rechercher dossier, client, Code MECeF..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  fetchInvoices(e.target.value);
+                }}
+                className="border border-neutral-300 rounded px-3 py-1.5 text-xs w-72 outline-none"
+              />
             </div>
-            <p className="text-xs text-neutral-700 leading-relaxed mb-5">
-              {duplicateWarning}
+
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-neutral-100 border-b border-neutral-300">
+                  <th className="p-2.5">Date / Heure DGI</th>
+                  <th className="p-2.5">Entite</th>
+                  <th className="p-2.5">Type</th>
+                  <th className="p-2.5">N° Dossier</th>
+                  <th className="p-2.5">Client</th>
+                  <th className="p-2.5">Navire</th>
+                  <th className="p-2.5 text-right">Total TTC</th>
+                  <th className="p-2.5">Code MECeF / DGI</th>
+                  <th className="p-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentInvoices.map((inv) => (
+                  <tr key={inv.id} className="border-b border-neutral-200 hover:bg-neutral-50">
+                    <td className="p-2.5 font-mono text-[11px]">{inv.date_time}</td>
+                    <td className="p-2.5 font-bold">{inv.entity}</td>
+                    <td className="p-2.5 font-bold">{inv.invoice_type}</td>
+                    <td className="p-2.5 font-bold">{inv.dossier_ref}</td>
+                    <td className="p-2.5">{inv.client_name}</td>
+                    <td className="p-2.5">{inv.vessel_name || '-'}</td>
+                    <td className="p-2.5 text-right font-mono font-bold">
+                      {Number(inv.total_ttc).toLocaleString('fr-FR')} FCFA
+                    </td>
+                    <td className="p-2.5 font-mono text-[11px]">{inv.code_mecef}</td>
+                    <td className="p-2.5 text-right space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewInvoice(inv)}
+                        className="px-2.5 py-1 border border-neutral-300 rounded font-bold hover:bg-neutral-100"
+                      >
+                        Apercu A4
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerPdfDownload(inv.id)}
+                        className="px-2.5 py-1 bg-neutral-900 text-white rounded font-bold hover:bg-neutral-800"
+                      >
+                        Telecharger PDF
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL APERCU FACTURE A4 OFFICIELLE */}
+      {previewInvoice && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-neutral-100 rounded shadow-2xl max-w-[840px] w-full max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="no-print bg-neutral-900 text-white px-4 py-2.5 flex items-center justify-between">
+              <span className="font-bold text-xs uppercase">
+                Apercu Facture Normalisee — Dossier {previewInvoice.dossier_ref} ({previewInvoice.code_mecef})
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => triggerPdfDownload(previewInvoice.id)}
+                  className="px-3 py-1 bg-emerald-500 text-neutral-950 font-bold text-xs rounded flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" /> Telecharger le fichier PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewInvoice(null)}
+                  className="p-1 hover:bg-neutral-800 rounded"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 flex justify-center">
+              <InvoiceSheetA4 invoice={previewInvoice} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ANTI-DOUBLON */}
+      {duplicateModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded max-w-md w-full p-5 shadow-2xl border-2 border-neutral-900">
+            <div className="flex items-center gap-2 font-bold text-sm uppercase mb-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              Doublon Potentiel Detecte
+            </div>
+            <p className="text-xs text-neutral-700 leading-relaxed mb-4">
+              {duplicateModal}
             </p>
-            <div className="flex justify-end gap-2 text-xs font-semibold">
+            <div className="flex justify-end gap-2 text-xs font-bold">
               <button
-                onClick={() => setDuplicateWarning(null)}
-                className="px-4 py-2 border border-neutral-300 rounded hover:bg-neutral-100 text-neutral-700"
+                type="button"
+                onClick={() => setDuplicateModal(null)}
+                className="px-4 py-2 border border-neutral-300 rounded hover:bg-neutral-100"
               >
                 Annuler
               </button>
               <button
-                onClick={() => handleNormalize(true)}
-                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded"
+                type="button"
+                onClick={() => handleSubmit(true)}
+                className="px-4 py-2 bg-neutral-900 text-white rounded hover:bg-neutral-800"
               >
-                Confirmer et Emettre
+                Confirmer et Emettre quand meme
               </button>
             </div>
           </div>

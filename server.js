@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const db = require('./db');
+const { generateInvoicePdfBuffer } = require('./pdfGenerator');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -166,6 +167,25 @@ app.get('/api/invoices', (req, res) => {
 
     res.json({ success: true, invoices: fullRows });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+app.get('/api/invoices/:id/pdf', async (req, res) => {
+  try {
+    const inv = getFullInvoiceById(Number(req.params.id));
+    if (!inv) {
+      return res.status(404).json({ success: false, message: 'Facture introuvable.' });
+    }
+    const pdfBuffer = await generateInvoicePdfBuffer(inv);
+    const safeRef = (inv.dossier_ref || 'FACTURE').replace(/[^A-Za-z0-9_-]/g, '_');
+    const filename = `Facture_${inv.entity}_${safeRef}_${inv.code_mecef || ''}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Erreur generation PDF:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
