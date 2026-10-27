@@ -1,0 +1,5 @@
+# Ignore reference raw clones so the project remains ultra lightweight and portable
+references/
+Guide-RGPD-du-developpeur/
+.DS_Store
+*.log

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portail Facturation & Normalisation e-MECeF | AGL & SOCOPAO</title>
+    <!-- QRCode.js pour générer le QR Code officiel conforme DGI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --primary: #102C57;
+            --primary-light: #16407b;
+            --secondary: #0D7C66;
+            --accent: #E65100;
+            --bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border: #E0E0E0;
+            --text-dark: #212529;
+            --text-muted: #6C757D;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+        body { background-color: var(--bg); color: var(--text-dark); display: flex; height: 100vh; overflow: hidden; }
+
+        /* Colonne Gauche : Saisie Rapide */
+        .sidebar {
+            width: 420px;
+            background: var(--card-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+        }
+
+        .header-box {
+            padding: 18px 20px;
+            background: var(--primary);
+            color: #fff;
+        }
+        .header-box h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; }
+        .header-box p { font-size: 11px; opacity: 0.8; margin-top: 4px; }
+
+        .form-container { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+        .field-group { display: flex; flex-direction: column; gap: 4px; }
+        .field-group label { font-size: 11.5px; font-weight: 600; color: #495057; text-transform: uppercase; }
+        .field-group input, .field-group select {
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .field-group input:focus, .field-group select:focus { border-color: var(--primary); }
+
+        .row-2 { display: flex; gap: 10px; }
+        .row-2 > div { flex: 1; }
+
+        .btn-submit {
+            margin-top: 10px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 13px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .btn-submit:hover { background: var(--primary-light); }
+
+        /* Colonne Droite : Vue Facture / Ticket DGI */
+        .main-view {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #E9ECEF;
+        }
+
+        .actions-bar {
+            width: 100%;
+            max-width: 440px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .btn-action {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #ced4da;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .btn-action.primary { background: var(--secondary); color: #fff; border: none; }
+
+        /* Ticket Officiel Réplique SyGMEF DGI */
+        .ticket-dgi {
+            width: 100%;
+            max-width: 440px;
+            background: #fff;
+            padding: 28px 24px;
+            border-radius: 4px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            color: #111;
+            line-height: 1.4;
+        }
+
+        .ticket-center { text-align: center; }
+        .ticket-bold { font-weight: bold; }
+        .ticket-divider { border-bottom: 1px dashed #777; margin: 12px 0; }
+
+        .table-ticket { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11.5px; }
+        .table-ticket th { border-bottom: 1px dashed #777; text-align: left; padding: 4px 0; }
+        .table-ticket td { padding: 4px 0; vertical-align: top; }
+        .text-right { text-align: right; }
+
+        .qr-wrapper {
+            margin: 14px auto 8px auto;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Modal Idempotence Confirmation */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-card {
+            background: white;
+            width: 460px;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .modal-card h3 { color: var(--accent); margin-bottom: 12px; font-size: 16px; }
+        .modal-card p { font-size: 13.5px; color: #495057; line-height: 1.5; margin-bottom: 18px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+        @media print {
+            body { background: white; }
+            .sidebar, .actions-bar, .modal-overlay { display: none !important; }
+            .main-view { padding: 0; background: white; }
+            .ticket-dgi { box-shadow: none; border: none; width: 100%; max-width: 100%; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Panneau de Saisie Rapide -->
+    <div class="sidebar">
+        <div class="header-box">
+            <h1>PORTAIL DE NORMALISATION</h1>
+            <p>AGL BÉNIN & SOCOPAO — SYSTÈME e-MECeF (DGI)</p>
+        </div>
+
+        <form id="invoiceForm" class="form-container">
+            <div class="row-2">
+                <div class="field-group">
+                    <label>Entité</label>
+                    <select id="entity">
+                        <option value="AGL">AGL BÉNIN</option>
+                        <option value="SOCOPAO">SOCOPAO</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>N° Facture / Dossier</label>
+                    <input type="text" id="reference" placeholder="Ex: AGL-2026-001" required>
+                </div>
+            </div>
+
+            <div class="field-group">
+                <label>IFU Client (13 chiffres)</label>
+                <input type="text" id="client_ifu" placeholder="0202430066359" maxlength="13">
+            </div>
+
+            <div class="field-group">
+                <label>Nom / Raison Sociale Client</label>
+                <input type="text" id="client_name" placeholder="Nom complet du client" required>
+            </div>
+
+            <div class="row-2">
+                <div class="field-group">
+                    <label>Nom du Navire</label>
+                    <input type="text" id="vessel_name" placeholder="Ex: MSC LAURA">
+                </div>
+                <div class="field-group">
+                    <label>Date Arrivée</label>
+                    <input type="date" id="arrival_date">
+                </div>
+            </div>
+
+            <div class="ticket-divider"></div>
+
+            <div class="field-group">
+                <label>Prestation Taxable (Montant HT)</label>
+                <input type="number" id="amount_service" placeholder="0" min="0" step="any" required>
+            </div>
+
+            <div class="field-group">
+                <label>Débours (Non Soumis à TVA - Groupe A)</label>
+                <input type="number" id="amount_debours" placeholder="0" min="0" step="any">
+            </div>
+
+            <button type="submit" class="btn-submit" id="btnSubmit">
+                ⚡ ENREGISTRER & NORMALISER
+            </button>
+        </form>
+    </div>
+
+    <!-- Zone d'affichage du Ticket Officiel DGI -->
+    <div class="main-view">
+        <div class="actions-bar" id="actionsBar" style="display: none;">
+            <span style="font-size: 13px; font-weight: 600; color: #495057;">Facture Officielle Conforme DGI</span>
+            <button class="btn-action primary" onclick="window.print()">🖨️ Télécharger / Imprimer PDF</button>
+        </div>
+
+        <div class="ticket-dgi" id="ticketDgi">
+            <div class="ticket-center ticket-bold" id="lblEntityName">AGL BÉNIN</div>
+            <div class="ticket-center" id="lblEntityAddr">Port de Cotonou, Bénin</div>
+            <div class="ticket-center">IFU: <span id="lblEntityIfu">0202430066359</span></div>
+            
+            <div class="ticket-divider"></div>
+            
+            <div><strong>FACTURE N°:</strong> <span id="lblReference">---</span></div>
+            <div><strong>CLIENT:</strong> <span id="lblClientName">---</span></div>
+            <div><strong>IFU CLIENT:</strong> <span id="lblClientIfu">---</span></div>
+            <div><strong>NAVIRE:</strong> <span id="lblVessel">---</span> | <strong>ESCALE:</strong> <span id="lblArrival">---</span></div>
+            
+            <div class="ticket-divider"></div>
+
+            <table class="table-ticket">
+                <thead>
+                    <tr>
+                        <th>DESCRIPTION</th>
+                        <th class="text-right">TOTAL</th>
+                        <th class="text-right">GRP</th>
+                    </tr>
+                </thead>
+                <tbody id="ticketItems">
+                    <tr><td colspan="3" style="text-align: center; color: #888; padding: 20px 0;">Aucune facture normalisée affichée</td></tr>
+                </tbody>
+            </table>
+
+            <div class="ticket-divider"></div>
+
+            <table class="table-ticket">
+                <tr><td>TOTAL HT</td><td class="text-right" id="lblTotalHT">0 FCFA</td></tr>
+                <tr><td>TVA (18% - GRP B)</td><td class="text-right" id="lblTotalTVA">0 FCFA</td></tr>
+                <tr><td>DÉBOURS (GRP A)</td><td class="text-right" id="lblTotalDebours">0 FCFA</td></tr>
+                <tr style="font-weight: bold; font-size: 13px;">
+                    <td>NET À PAYER</td><td class="text-right" id="lblTotalTTC">0 FCFA</td></tr>
+            </table>
+
+            <div class="ticket-divider"></div>
+
+            <!-- Bandeau de Sécurité Fiscale DGI -->
+            <div class="ticket-center ticket-bold">ÉLÉMENTS FISCAUX e-MECeF / DGI</div>
+            <div style="font-size: 11px; margin-top: 6px;">
+                <div>NIM: <span id="lblNim">---</span></div>
+                <div>COMPTEURS: <span id="lblCounters">---</span></div>
+                <div>CODE MECEF/DGI:</div>
+                <div class="ticket-bold" id="lblCodeMecef" style="word-break: break-all;">---</div>
+                <div>DATE/HEURE: <span id="lblDateTime">---</span></div>
+            </div>
+
+            <div class="qr-wrapper" id="qrContainer"></div>
+            <div class="ticket-center" style="font-size: 10px; color: #555;">Facture Normalisée Certifiée DGI Bénin</div>
+        </div>
+    </div>
+
+    <!-- Modal d'Alerte Idempotence / Anti-Doublon -->
+    <div class="modal-overlay" id="duplicateModal">
+        <div class="modal-card">
+            <h3>⚠️ Alerte Idempotence & Doublon Détecté</h3>
+            <p id="duplicateModalMsg"></p>
+            <div class="modal-actions">
+                <button class="btn-action" onclick="closeModal()">Annuler</button>
+                <button class="btn-action primary" onclick="confirmForceSubmission()">Confirmer et Forcer l'Envoi</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPayload = null;
+
+        document.getElementById('invoiceForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const payload = {
+                entity: document.getElementById('entity').value,
+                reference: document.getElementById('reference').value,
+                client_ifu: document.getElementById('client_ifu').value,
+                client_name: document.getElementById('client_name').value,
+                vessel_name: document.getElementById('vessel_name').value,
+                arrival_date: document.getElementById('arrival_date').value,
+                amount_service: parseFloat(document.getElementById('amount_service').value || 0),
+                amount_debours: parseFloat(document.getElementById('amount_debours').value || 0),
+                has_tva: true,
+                force: false
+            };
+
+            currentPayload = payload;
+            await submitInvoice(payload);
+        });
+
+        async function submitInvoice(payload) {
+            const btn = document.getElementById('btnSubmit');
+            btn.innerText = "⏳ NORMALISATION EN COURS...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/normalize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await response.json();
+
+                if (res.requires_confirmation) {
+                    showDuplicateModal(res.message);
+                } else if (res.success) {
+                    renderTicket(res.data);
+                    document.getElementById('actionsBar').style.display = 'flex';
+                    if (res.already_normalized) {
+                        alert("ℹ️ " + res.message);
+                    }
+                } else {
+                    alert("Erreur: " + res.message);
+                }
+            } catch (err) {
+                alert("Erreur de connexion au serveur local.");
+            } finally {
+                btn.innerText = "⚡ ENREGISTRER & NORMALISER";
+                btn.disabled = false;
+            }
+        }
+
+        function showDuplicateModal(msg) {
+            document.getElementById('duplicateModalMsg').innerText = msg;
+            document.getElementById('duplicateModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('duplicateModal').style.display = 'none';
+        }
+
+        async function confirmForceSubmission() {
+            closeModal();
+            if (currentPayload) {
+                currentPayload.force = true;
+                await submitInvoice(currentPayload);
+            }
+        }
+
+        function renderTicket(data) {
+            document.getElementById('lblEntityName').innerText = data.entity === 'AGL' ? 'AGL BÉNIN' : 'SOCOPAO';
+            document.getElementById('lblEntityIfu').innerText = data.emitter_ifu || '0202430066359';
+            document.getElementById('lblReference').innerText = data.reference;
+            document.getElementById('lblClientName').innerText = data.client_name;
+            document.getElementById('lblClientIfu').innerText = data.client_ifu || 'NON RENSEIGNÉ';
+            document.getElementById('lblVessel').innerText = data.vessel_name || 'N/A';
+            document.getElementById('lblArrival').innerText = data.arrival_date || 'N/A';
+
+            document.getElementById('lblTotalHT').innerText = data.amount_service.toLocaleString('fr-FR') + ' FCFA';
+            document.getElementById('lblTotalTVA').innerText = data.amount_tva.toLocaleString('fr-FR') + ' FCFA';
+            document.getElementById('lblTotalDebours').innerText = data.amount_debours.toLocaleString('fr-FR') + ' FCFA';
+            document.getElementById('lblTotalTTC').innerText = data.amount_total.toLocaleString('fr-FR') + ' FCFA';
+
+            document.getElementById('lblNim').innerText = data.nim;
+            document.getElementById('lblCounters').innerText = data.counters;
+            document.getElementById('lblCodeMecef').innerText = data.code_mecef;
+            document.getElementById('lblDateTime').innerText = data.date_time;
+
+            const itemsTbody = document.getElementById('ticketItems');
+            itemsTbody.innerHTML = `
+                <tr>
+                    <td>PRESTATIONS MARITIMES & TRANSIT</td>
+                    <td class="text-right">${data.amount_service.toLocaleString('fr-FR')}</td>
+                    <td class="text-right">[B]</td>
+                </tr>
+                ${data.amount_debours > 0 ? `
+                <tr>
+                    <td>DÉBOURS (DOUANE & PORT SANS TVA)</td>
+                    <td class="text-right">${data.amount_debours.toLocaleString('fr-FR')}</td>
+                    <td class="text-right">[A]</td>
+                </tr>` : ''}
+            `;
+
+            // QR Code
+            const qrWrapper = document.getElementById('qrContainer');
+            qrWrapper.innerHTML = '';
+            new QRCode(qrWrapper, {
+                text: data.qr_code,
+                width: 140,
+                height: 140,
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+    </script>
+</body>
+</html>

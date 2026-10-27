@@ -1,0 +1,64 @@
+# Configuration Maître du Senior Agent Core
+
+version: "2.0"
+
+# 1. Langue et Communication
+language:
+  primary: "fr"
+  allowed_locales: ["fr", "en"]
+  hedging_strict_mode: true
+
+# 2. Stratégie Git & Branches
+git:
+  default_branch: "main"
+  integration_branch: "developp"
+  enforce_french_commits: true
+  convention: "conventional_commits"
+  allowed_prefixes:
+    - feat
+    - fix
+    - docs
+    - refactor
+    - test
+    - style
+    - chore
+    - perf
+    - ci
+
+# 3. Structure Mémoire
+memory:
+  operational_index: "BRAIN.md"
+  storage_directory: ".agent/memory"
+  auto_update_current_state: true
+  adr_directory: "docs/decisions"
+
+# 4. Sécurité & Analyse Statique
+security:
+  dependency_audit_level: "high"
+  block_on_audit_failure: true
+  scan_secrets_with_gitleaks: true
+  static_analysis_with_semgrep: true
+  semgrep_config: ".semgrep.yml"
+
+# 5. Stratégie de Tests & Qualité
+testing:
+  strict_typing: true
+  allow_any: false
+  require_characterization_before_refactor: true
+  forbid_skipped_tests_in_ci: true
+
+# 6. Évaluations & Banc d'Essai
+evaluation:
+  evals_directory: "tests/evals"
+  runner_script: "scripts/run-evals.py"
+  strict_pass_criteria: true
+
+# 7. Adapters d'Agents
+adapters:
+  generator_script: "scripts/build-adapters.py"
+  targets:
+    - AGENTS.md
+    - GEMINI.md
+    - CLAUDE.md
+    - .cursorrules
+    - .github/copilot-instructions.md
