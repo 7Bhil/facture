@@ -9,3 +9,11 @@ dist/
 factures.db-journal
 client/node_modules/
 client/dist/
+
+# Fichiers de regles locales agent (ne pas pousser sur GitHub)
+.agent/
+AGENTS.md
+GEMINI.md
+CLAUDE.md
+.cursorrules
+BRAIN.md
