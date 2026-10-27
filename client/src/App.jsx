@@ -50,7 +50,7 @@ export default function App() {
         alert(data.message || 'Erreur lors de la normalisation');
       }
     } catch (err) {
-      alert('Impossible de contacter le serveur Express local (port 3001).');
+      alert('Impossible de contacter le serveur Express local.');
     } finally {
       setLoading(false);
     }
@@ -58,37 +58,35 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 font-sans">
-      
-      {/* Panneau de saisie rapide (Gauche) */}
       <div className="no-print w-[440px] bg-white border-r border-slate-200 flex flex-col h-full shadow-lg z-10">
         <div className="bg-aglNavy text-white p-5">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-emerald-400" />
             <h1 className="font-bold text-base tracking-wide">PORTAIL e-MECeF</h1>
           </div>
-          <p className="text-xs text-slate-300 mt-1">Normalisation AGL Bénin & SOCOPAO</p>
+          <p className="text-xs text-slate-300 mt-1">Normalisation AGL Bénin et SOCOPAO</p>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">ENTITÉ</label>
+              <label className="font-bold text-slate-700 block mb-1">ENTITE</label>
               <select
                 name="entity"
                 value={form.entity}
                 onChange={handleChange}
                 className="w-full border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:bg-white focus:ring-1 focus:ring-aglNavy outline-none font-semibold text-aglNavy"
               >
-                <option value="AGL">AGL BÉNIN</option>
+                <option value="AGL">AGL BENIN</option>
                 <option value="SOCOPAO">SOCOPAO</option>
               </select>
             </div>
             <div>
-              <label className="font-bold text-slate-700 block mb-1">N° DOSSIER / FACTURE</label>
+              <label className="font-bold text-slate-700 block mb-1">NUMERO DOSSIER / FACTURE</label>
               <input
                 type="text"
                 name="reference"
-                placeholder="Ex: AGL-2026-001"
+                placeholder="AGL-2026-001"
                 value={form.reference}
                 onChange={handleChange}
                 className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
@@ -127,14 +125,14 @@ export default function App() {
               <input
                 type="text"
                 name="vessel_name"
-                placeholder="Ex: MSC LAURA"
+                placeholder="MSC LAURA"
                 value={form.vessel_name}
                 onChange={handleChange}
                 className="w-full border border-slate-300 rounded px-3 py-2 outline-none focus:ring-1 focus:ring-aglNavy"
               />
             </div>
             <div>
-              <label className="font-bold text-slate-700 block mb-1">DATE ARRIVÉE</label>
+              <label className="font-bold text-slate-700 block mb-1">DATE ARRIVEE</label>
               <input
                 type="date"
                 name="arrival_date"
@@ -146,7 +144,7 @@ export default function App() {
           </div>
 
           <div className="border-t border-slate-200 my-1 pt-3">
-            <label className="font-bold text-slate-700 block mb-1">PRESTATION HT (TVA 18% - GRP B)</label>
+            <label className="font-bold text-slate-700 block mb-1">PRESTATION HT (TVA 18% - GROUPE B)</label>
             <input
               type="number"
               name="amount_service"
@@ -158,7 +156,7 @@ export default function App() {
           </div>
 
           <div>
-            <label className="font-bold text-slate-700 block mb-1">DÉBOURS (SANS TVA - GRP A)</label>
+            <label className="font-bold text-slate-700 block mb-1">DEBOURS (SANS TVA - GROUPE A)</label>
             <input
               type="number"
               name="amount_debours"
@@ -174,40 +172,38 @@ export default function App() {
             disabled={loading || !form.reference || !form.client_name}
             className="mt-2 w-full bg-aglNavy hover:bg-aglNavyLight disabled:bg-slate-300 text-white font-bold py-3 rounded shadow transition flex items-center justify-center gap-2"
           >
-            {loading ? 'NORMALISATION EN COURS...' : '⚡ VALIDER & NORMALISER'}
+            {loading ? 'NORMALISATION EN COURS...' : 'VALIDER ET NORMALISER'}
           </button>
         </div>
       </div>
 
-      {/* Zone Centrale : Aperçu Ticket DGI / Option B */}
       <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-start">
         {normalizedData ? (
           <>
             <div className="no-print w-full max-w-md flex justify-between items-center mb-4">
               <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4" /> Facture Certifiée DGI Bénin
+                <CheckCircle2 className="w-4 h-4" /> Facture Certifiee DGI Benin
               </span>
               <button
                 onClick={() => window.print()}
                 className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded flex items-center gap-1.5 shadow"
               >
-                <Printer className="w-4 h-4" /> Imprimer / Télécharger PDF
+                <Printer className="w-4 h-4" /> Imprimer / Telecharger PDF
               </button>
             </div>
 
-            {/* Ticket Normalisé Exact SyGMEF DGI */}
             <div className="print-area w-full max-w-md bg-white p-8 rounded shadow-md border border-slate-200 font-mono text-[12px] text-slate-900 leading-relaxed">
               <div className="text-center font-bold text-[14px]">
-                {normalizedData.entity === 'AGL' ? 'AGL BÉNIN' : 'SOCOPAO'}
+                {normalizedData.entity === 'AGL' ? 'AGL BENIN' : 'SOCOPAO'}
               </div>
-              <div className="text-center text-[11px] text-slate-600">Port de Cotonou, Bénin</div>
+              <div className="text-center text-[11px] text-slate-600">Port de Cotonou, Benin</div>
               <div className="text-center text-[11px] mb-3">IFU : {normalizedData.emitter_ifu}</div>
 
               <div className="border-b border-dashed border-slate-400 my-2"></div>
 
               <div><strong>FACTURE N° :</strong> {normalizedData.reference}</div>
               <div><strong>CLIENT :</strong> {normalizedData.client_name}</div>
-              <div><strong>IFU CLIENT :</strong> {normalizedData.client_ifu || 'NON RENSEIGNÉ'}</div>
+              <div><strong>IFU CLIENT :</strong> {normalizedData.client_ifu || 'NON RENSEIGNE'}</div>
               <div><strong>NAVIRE :</strong> {normalizedData.vessel_name || 'N/A'}</div>
               <div><strong>ESCALE :</strong> {normalizedData.arrival_date || 'N/A'}</div>
 
@@ -223,13 +219,13 @@ export default function App() {
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="py-1">PRESTATIONS MARITIMES & TRANSIT</td>
+                    <td className="py-1">PRESTATIONS MARITIMES ET TRANSIT</td>
                     <td className="text-right py-1">{Number(normalizedData.amount_service).toLocaleString('fr-FR')}</td>
                     <td className="text-right py-1">[B]</td>
                   </tr>
                   {Number(normalizedData.amount_debours) > 0 && (
                     <tr>
-                      <td className="py-1">DÉBOURS (SANS TVA)</td>
+                      <td className="py-1">DEBOURS (SANS TVA)</td>
                       <td className="text-right py-1">{Number(normalizedData.amount_debours).toLocaleString('fr-FR')}</td>
                       <td className="text-right py-1">[A]</td>
                     </tr>
@@ -249,19 +245,18 @@ export default function App() {
                   <span>{Number(normalizedData.amount_tva).toLocaleString('fr-FR')} FCFA</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>DÉBOURS (GRP A) :</span>
+                  <span>DEBOURS (GRP A) :</span>
                   <span>{Number(normalizedData.amount_debours).toLocaleString('fr-FR')} FCFA</span>
                 </div>
                 <div className="flex justify-between font-bold text-[13px] pt-1 border-t border-slate-300">
-                  <span>NET À PAYER :</span>
+                  <span>NET A PAYER :</span>
                   <span>{Number(normalizedData.amount_total).toLocaleString('fr-FR')} FCFA</span>
                 </div>
               </div>
 
               <div className="border-b border-dashed border-slate-400 my-3"></div>
 
-              {/* Bloc Fiscal Sécurisé DGI */}
-              <div className="text-center font-bold text-[11px] mb-1">ÉLÉMENTS FISCAUX e-MECeF / DGI</div>
+              <div className="text-center font-bold text-[11px] mb-1">ELEMENTS FISCAUX e-MECeF / DGI</div>
               <div className="text-[10px] space-y-0.5">
                 <div>NIM : {normalizedData.nim}</div>
                 <div>COMPTEURS : {normalizedData.counters}</div>
@@ -275,25 +270,24 @@ export default function App() {
               </div>
 
               <div className="text-center text-[10px] text-slate-500">
-                Facture Normalisée Certifiée DGI Bénin
+                Facture Normalisee Certifiee DGI Benin
               </div>
             </div>
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
             <FileText className="w-16 h-16 stroke-1 text-slate-300" />
-            <p className="text-sm">Renseignez les champs à gauche et cliquez sur Normaliser.</p>
+            <p className="text-sm">Renseignez les champs a gauche et cliquez sur Normaliser.</p>
           </div>
         )}
       </div>
 
-      {/* Modal d'Alerte Idempotence / Anti-Doublon */}
       {duplicateWarning && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 text-amber-600 mb-3">
               <AlertTriangle className="h-6 w-6" />
-              <h3 className="font-bold text-base">Alerte Doublon & Idempotence</h3>
+              <h3 className="font-bold text-base">Alerte Doublon et Idempotence</h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed mb-5">
               {duplicateWarning}
@@ -309,7 +303,7 @@ export default function App() {
                 onClick={() => handleNormalize(true)}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded shadow"
               >
-                Confirmer & Forcer l'envoi
+                Confirmer et Forcer l'envoi
               </button>
             </div>
           </div>

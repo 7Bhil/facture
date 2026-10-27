@@ -5,13 +5,14 @@
 ---
 
 ## 1. Tâche Actuelle
-- **Objectif** : Initialisation du dépôt `facture`, intégration des règles `7Bhil/agent`, et mise en place de l'interface de normalisation e-MECeF.
-- **Branche Active** : `main`.
+- **Objectif** : Application de normalisation e-MECeF pour AGL et SOCOPAO.
+- **Branche Active** : `feature/normalisation-mecef`.
 
 ## 2. Actions Complétées
-- [x] Initialisation du dépôt git `facture`.
-- [x] Intégration du système de règles et mémoire `.agent` (standard 7Bhil).
-- [x] Rédaction de `BRAIN.md` et archivage des spécifications OpenAPI DGI dans `docs/specifications/`.
+- [x] Alignement strict sur les règles du profil 7Bhil : suppression des émojis dans le code et les commits, gestion de branche `feature/normalisation-mecef` issue de `developp`.
+- [x] Implémentation du backend Express JS (`server.js`) avec persistance SQLite et gestion de l'idempotence.
+- [x] Configuration du client React avec Tailwind CSS v3 et PostCSS (`postcss.config.js`).
+- [x] Rendu conforme du ticket DGI (SyGMEF) avec QR Code SVG et feuille de style dédiée à l'impression PDF.
 
 ## 3. Prochaine Étape
-- Développement de l'architecture backend et de l'interface de saisie/normalisation.
+- Validation fonctionnelle par l'utilisateur et tests de saisie d'un lot de factures.
